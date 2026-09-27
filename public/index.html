@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="NULLCODE — a premium AI coding workspace by XEER0.">
+  <title>NULLCODE</title>
+  <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+  <!-- ================= Authentication (standalone, zero app code loaded) ================= -->
+  <div id="authView" class="auth hidden">
+    <main class="auth-panel">
+      <img src="/brand/logo-light.svg" alt="NULLCODE" class="auth-logo">
+      <h1 id="authTitle" class="auth-title">Sign in to NULLCODE</h1>
+      <p id="authSub" class="auth-sub">Use your account to access your NULLCODE workspace.</p>
+
+      <form id="authForm" class="auth-form" novalidate>
+        <input id="authName" type="text" placeholder="Full name" autocomplete="name" class="input hidden">
+        <input id="authEmail" type="email" placeholder="Email" autocomplete="email" required class="input">
+        <input id="authPass" type="password" placeholder="Password" autocomplete="current-password" required class="input">
+        <button type="submit" id="authSubmit" class="btn btn-primary btn-block">Sign in</button>
+      </form>
+
+      <p class="auth-switch">
+        <span id="authSwitchLabel">New to NULLCODE?</span>
+        <a href="#" id="authSwitch" class="link">Create an account</a>
+        <span id="authSwitchLabel2" class="hidden">Already have an account?</span>
+        <a href="#" id="authSwitch2" class="link hidden">Sign in</a>
+      </p>
+
+      <p id="authError" class="auth-error" role="alert"></p>
+      <footer class="auth-foot">NULLCODE by XEER0 · © 2026 XEER0</footer>
+    </main>
+  </div>
+
+  <!-- ================= Application ================= -->
+  <div id="appView" class="app hidden">
+    <aside class="sidebar">
+      <div class="side-brand">
+        <img src="/brand/logo-light.svg" alt="NULLCODE" class="side-logo">
+        <span class="side-name">NULLCODE</span>
+      </div>
+
+      <button id="newProjectBtn" class="btn btn-primary btn-block">New project</button>
+
+      <nav class="side-nav">
+        <div class="side-label">Projects</div>
+        <div id="projectList" class="project-list"></div>
+      </nav>
+
+      <div class="side-account">
+        <div class="account-row">
+          <span id="userAvatar" class="avatar"></span>
+          <span id="userBadge" class="account-name"></span>
+        </div>
+        <button id="settingsBtn" class="side-action">Settings</button>
+        <button id="signOutBtn" class="side-action">Sign out</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1 id="projTitle" class="topbar-title">NULLCODE</h1>
+        <div class="top-actions">
+          <button id="runBtn" class="btn btn-quiet">Run</button>
+          <button id="testBtn" class="btn btn-quiet">Test</button>
+          <button id="publishBtn" class="btn btn-quiet">Publish</button>
+          <button id="commitBtn" class="btn btn-quiet">Commit</button>
+        </div>
+        <span id="statusPill" class="status">Ready</span>
+        <span id="runPill" class="status status-ok hidden"></span>
+      </header>
+
+      <section id="chatScroll" class="chat">
+        <div id="chatEmpty" class="empty">
+          <img src="/brand/logo-light.svg" alt="" class="empty-logo">
+          <h2 class="empty-title">What are we building?</h2>
+          <div id="emptyChips" class="chips">
+            <button class="chip" data-fill="Create a website for my business with a clean modern design.">Build a website</button>
+            <button class="chip" data-fill="There is an error in this project. Find the cause and fix it.">Fix an error</button>
+            <button class="chip" data-fill="Explain how this project is structured and what each file does.">Explain this project</button>
+            <button class="chip" data-fill="Improve the design and layout of the main page without changing the brand style.">Improve the design</button>
+          </div>
+        </div>
+        <div id="chat" class="chat-list" aria-live="polite"></div>
+      </section>
+
+      <div id="steps" class="steps hidden"></div>
+
+      <footer class="composer">
+        <div id="attachments" class="attachments hidden"></div>
+        <div class="composer-row">
+          <input type="file" id="fileInput" multiple class="visually-hidden">
+          <button id="attachBtn" class="icon-btn" title="Attach files or screenshots" aria-label="Attach files">＋</button>
+          <textarea id="prompt" class="composer-input" rows="1"
+            placeholder="Describe what you want to build, fix, understand, or change…"></textarea>
+          <button id="sendBtn" class="btn btn-primary" title="Send">Send</button>
+        </div>
+      </footer>
+    </main>
+
+    <aside class="rightbar">
+      <section class="panel">
+        <h3 class="panel-title">Preview</h3>
+        <div id="previewBox" class="preview-box">Run the project to see a live preview.</div>
+        <div class="panel-row">
+          <button id="openPreviewBtn" class="btn btn-quiet">Open</button>
+          <button id="stopBtn" class="btn btn-quiet">Stop</button>
+        </div>
+      </section>
+      <section class="panel">
+        <h3 class="panel-title">Files</h3>
+        <div id="treeBox" class="tree muted">No files yet.</div>
+      </section>
+      <section class="panel">
+        <h3 class="panel-title">Test report</h3>
+        <div id="testBox" class="tree muted">No report yet.</div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- ================= Dialogs ================= -->
+  <dialog id="newProjectModal" class="modal">
+    <h2 class="modal-title">Create project</h2>
+    <label class="field">
+      <span class="field-label">Project name</span>
+      <input id="npName" type="text" class="input" placeholder="My Portfolio" required>
+    </label>
+    <label class="field">
+      <span class="field-label">Description <span class="optional">optional</span></span>
+      <textarea id="npDesc" class="input textarea" rows="3"
+        placeholder="What is this project? NULLCODE will use this as the starting context."></textarea>
+    </label>
+    <div class="modal-actions">
+      <button id="npCancel" class="btn btn-quiet">Cancel</button>
+      <button id="npCreate" class="btn btn-primary">Create project</button>
+    </div>
+  </dialog>
+
+  <dialog id="publishModal" class="modal">
+    <h2 class="modal-title">Publish to GitHub</h2>
+    <label class="field">
+      <span class="field-label">Repository name</span>
+      <input id="pubName" type="text" class="input" placeholder="my-project">
+    </label>
+    <label class="check"><input id="pubPrivate" type="checkbox" checked> Private repository</label>
+    <p class="hint">Requires a GitHub token in Settings → GitHub.</p>
+    <div class="modal-actions">
+      <button id="pubCancel" class="btn btn-quiet">Cancel</button>
+      <button id="pubOk" class="btn btn-primary">Publish</button>
+    </div>
+  </dialog>
+
+  <dialog id="settingsModal" class="modal modal-wide">
+    <h2 class="modal-title">Settings</h2>
+
+    <section class="settings-section">
+      <h3 class="panel-title">Account</h3>
+      <div id="accountInfo" class="account-info"></div>
+      <button id="signOutBtn2" class="btn btn-quiet">Sign out</button>
+    </section>
+
+    <section class="settings-section">
+      <h3 class="panel-title">AI</h3>
+      <p id="aiStatus" class="hint">Checking AI availability…</p>
+      <div class="settings-grid">
+        <select id="provType" class="input">
+          <option value="openai-compatible">OpenAI-compatible (OpenAI, Groq, DeepSeek…)</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="ollama">Ollama (local)</option>
+        </select>
+        <input id="provLabel" type="text" class="input" placeholder="Label">
+        <input id="provBase" type="text" class="input" placeholder="Base URL">
+        <input id="provModel" type="text" class="input" placeholder="Model">
+        <input id="provKey" type="password" class="input" placeholder="API key">
+        <label class="check"><input id="provFree" type="checkbox" checked> Free tier</label>
+      </div>
+      <button id="provAdd" class="btn btn-quiet">Connect provider</button>
+      <div id="provList" class="prov-list"></div>
+    </section>
+
+    <section class="settings-section">
+      <h3 class="panel-title">GitHub</h3>
+      <div class="settings-grid">
+        <input id="ghToken" type="password" class="input" placeholder="GitHub token (repo scope)">
+        <button id="ghSave" class="btn btn-quiet">Save</button>
+      </div>
+      <p id="ghState" class="hint"></p>
+    </section>
+
+    <section class="settings-section">
+      <h3 class="panel-title">About</h3>
+      <p class="hint">NULLCODE 0.1 — a premium AI coding workspace.<br>© 2026 XEER0</p>
+    </section>
+
+    <div class="modal-actions">
+      <button id="settingsClose" class="btn btn-primary">Done</button>
+    </div>
+  </dialog>
+
+  <!-- Lightweight boot: the application bundle loads only for signed-in users. -->
+  <script>
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('nc_token'); } catch (e) { /* storage unavailable */ }
+      if (!t) {
+        document.getElementById('authView').classList.remove('hidden');
+        var a = document.createElement('script');
+        a.src = '/auth.js';
+        document.body.appendChild(a);
+        return;
+      }
+      var s = document.createElement('script');
+      s.type = 'module';
+      s.src = '/app.js';
+      document.body.appendChild(s);
+    })();
+  </script>
+</body>
+</html>

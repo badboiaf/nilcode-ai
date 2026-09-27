@@ -1,0 +1,12 @@
+node_modules/
+nullcode.db
+nullcode.db-*
+.nullcode/
+.nullcode-data/
+.freebuff/
+.env
+.env.*
+*.log
+dist/
+build/
+coverage/
