@@ -9,6 +9,8 @@ import * as tools from './tools.js';
 import * as localGit from '../git/local.js';
 import { readJson, writeJson } from '../store.js';
 import config from '../config.js';
+import { logAIError } from '../providers/registry.js';
+import { recordUsage } from '../ai-usage.js';
 
 const SYSTEM_PERSONA = `You are NULLCODE, an autonomous software development agent.
 The user may not know how to program. Explain in clear, plain language when you talk to them.
@@ -138,12 +140,19 @@ export async function runAgent({ user, project, prompt, emit, attachments }) {
       conversation: recentConversation(user.id, project.id, 8),
       attachments,
     });
+    // Meter platform-AI usage (BYO providers and Ollama are not metered).
+    if (decision.provider.platform) {
+      recordUsage(user.id, { tokens: decision.usage?.total_tokens || 0 });
+    }
   } catch (err) {
-    const message = err.message || 'The AI backend is unavailable.';
-    appendMessage(user.id, project.id, { role: 'assistant', content: `⚠️ ${message}` });
-    emitSafe({ type: 'error', message });
+    // Friendly user copy; full provider detail goes to server logs only.
+    const code = err.code || 'UNAVAILABLE';
+    const message = err.message || 'NULLCODE AI is temporarily unavailable.';
+    logAIError('chat failed', err.detail || err.message);
+    appendMessage(user.id, project.id, { role: 'assistant', content: `⚠️ ${message}`, aiError: code });
+    emitSafe({ type: 'error', message, code });
     emitSafe({ type: 'done' });
-    return { ok: false, error: message };
+    return { ok: false, error: code };
   }
 
   // Conversational answer (questions, explanations, "why did you do that?").

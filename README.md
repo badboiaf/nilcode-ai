@@ -32,6 +32,28 @@ Ordinary users never configure API keys. NULLCODE resolves AI in this order:
 
 3. **Local Ollama** (free, on your own machine) — detected automatically when running.
 
+Optional operator controls:
+
+```bash
+NULLCODE_AI_DAILY_LIMIT=50   # platform AI requests per user per UTC day (default 50)
+NULLCODE_AI_TIMEOUT_MS=180000 # upstream request timeout
+```
+
+Usage is metered per authenticated user; when the daily allowance is reached users see
+a clear limit message with a reset time. Provider credentials never leave the server.
+
+### Error behavior (users never see operator details)
+
+| Situation | User sees |
+|---|---|
+| No platform AI configured | "NULLCODE AI is not configured yet." |
+| Provider outage / auth failure | "NULLCODE AI is temporarily unavailable. Please try again in a moment." + retry |
+| Daily limit reached | "You've reached your current usage limit…" + reset time |
+| Provider rejects the request | "NULLCODE couldn't process that request." |
+| Not signed in | "Sign in to use NULLCODE." |
+
+Detailed provider errors are logged server-side only.
+
 If no AI path is available, NULLCODE says so honestly. It never fakes results, never
 simulates "completed" work, and never ships secret keys to clients.
 

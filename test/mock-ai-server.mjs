@@ -5,6 +5,7 @@ import http from 'node:http';
 
 export function startMockAI() {
   const calls = [];
+  const statusQueue = []; // one-shot failures: queueStatus(429), queueStatus(500)…
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
@@ -17,10 +18,19 @@ export function startMockAI() {
         res.end(JSON.stringify({ object: 'list', data: [{ id: 'nova-test' }] }));
         return;
       }
+      const forced = statusQueue.shift();
+      if (forced) {
+        res.writeHead(forced, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'mock failure' } }));
+        return;
+      }
 
-      // Role detection from the prompt shape used by the engine.
+      // Role detection from the prompt shape used by the engine. Only the
+      // final request line decides conversation vs build (history may quote
+      // earlier phrases).
+      const currentRequest = /Current request: (.*)/m.exec(body)?.[1] || body;
       const isCoder = /Write the complete content/i.test(body);
-      const isQuestion = /What is this project/i.test(body);
+      const isQuestion = /What is this project/i.test(currentRequest);
 
       let content;
       if (isCoder) {
@@ -44,7 +54,12 @@ export function startMockAI() {
   });
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
-      resolve({ server, url: `http://127.0.0.1:${server.address().port}/v1`, calls });
+      resolve({
+        server,
+        url: `http://127.0.0.1:${server.address().port}/v1`,
+        calls,
+        queueStatus: (s) => statusQueue.push(s),
+      });
     });
   });
 }

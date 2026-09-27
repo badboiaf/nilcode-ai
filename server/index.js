@@ -10,6 +10,8 @@ import { ProviderRegistry } from './providers/registry.js';
 import { runAgent, loadConversation } from './agent/engine.js';
 import { aiStatus } from './providers/registry.js';
 import { authenticateWithGoogle, googleStatus } from './auth/google.js';
+import { checkUsage, usageState } from './ai-usage.js';
+import { AI_ERRORS } from './providers/registry.js';
 import { createPairingCode, peekPairingCode, consumePairingCode } from './desktop-pairing.js';
 import * as tools from './agent/tools.js';
 import * as localGit from './git/local.js';
@@ -325,7 +327,7 @@ api.post('/desktop/pair-code/redeem', (req, res) => {
 
 // ----------------------------------------------------------------- AI status --
 api.get('/ai/status', requireAuth, async (req, res) => {
-  res.json(await aiStatus(req.user.id));
+  res.json({ ...(await aiStatus(req.user.id)), usage: usageState(req.user.id) });
 });
 
 // -------------------------------------------------------------- providers --
@@ -389,6 +391,13 @@ app.post('/api/projects/:id/chat', requireAuth, async (req, res) => {
     connection: 'keep-alive',
   });
   const emit = (event) => res.write(`${JSON.stringify(event)}\n`);
+  // Usage gate for platform AI capacity — authenticated users only reach here.
+  const usage = checkUsage(req.user.id);
+  if (!usage.allowed) {
+    emit({ type: 'error', code: 'RATE_LIMITED', message: AI_ERRORS.RATE_LIMITED, usage });
+    emit({ type: 'done' });
+    return res.end();
+  }
   try {
     // Context engine: choose which of the user's attachments are relevant
     // (pinned project files, this conversation's uploads, explicit mentions).

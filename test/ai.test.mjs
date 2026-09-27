@@ -177,9 +177,74 @@ test('without any AI, the agent answers honestly instead of faking success', asy
     buf = '';
   }
   const types = events.map((e) => e.type);
-  assert.ok(types.includes('error'), 'an honest error event is emitted');
+  const errEvent = events.find((e) => e.type === 'error');
+  assert.ok(errEvent, 'an honest error event is emitted');
+  assert.equal(errEvent.code, 'NOT_CONFIGURED', 'stable error code for UI mapping');
+  assert.doesNotMatch(errEvent.message, /NULLCODE_AI_|environment|Ollama/i, 'no operator internals leaked to users');
   assert.equal(types.includes('plan'), false, 'no plan is faked');
   assert.equal(types.includes('assistant'), false, 'no fake success message');
   // Restore for any later tests.
   config.platform.baseUrl = saved;
 });
+
+test('provider 429 maps to the rate-limit code, 500 to unavailable', async () => {
+  const u = await api('POST', '/auth/signup', { body: { email: 'rl@example.com', password: 'secret1', name: 'RL' } });
+  const t = u.data.token;
+  const p = await api('POST', '/projects', { token: t, body: { name: 'Rate Limit' } });
+
+  mock.queueStatus(429);
+  const events1 = [];
+  await collectChat(t, p.data.project.id, 'do something', events1);
+  assert.equal(events1.find((e) => e.type === 'error')?.code, 'RATE_LIMITED');
+
+  mock.queueStatus(500);
+  const events2 = [];
+  await collectChat(t, p.data.project.id, 'do something else', events2);
+  assert.equal(events2.find((e) => e.type === 'error')?.code, 'UNAVAILABLE');
+});
+
+test('platform AI usage is metered and enforced per user per day', async () => {
+  process.env.NULLCODE_AI_DAILY_LIMIT = '2';
+  const u = await api('POST', '/auth/signup', { body: { email: 'usage@example.com', password: 'secret1', name: 'U' } });
+  const t = u.data.token;
+  const p = await api('POST', '/projects', { token: t, body: { name: 'Metered' } });
+
+  const events1 = [];
+  await collectChat(t, p.data.project.id, 'first request', events1);
+  assert.ok(events1.find((e) => e.type === 'assistant') || events1.find((e) => e.type === 'plan'), 'first request succeeds');
+
+  const events2 = [];
+  await collectChat(t, p.data.project.id, 'second request', events2);
+  assert.ok(events2.find((e) => e.type === 'assistant') || events2.find((e) => e.type === 'plan'), 'second request succeeds');
+
+  const events3 = [];
+  await collectChat(t, p.data.project.id, 'third request', events3);
+  const err = events3.find((e) => e.type === 'error');
+  assert.equal(err?.code, 'RATE_LIMITED');
+  assert.match(err?.message || '', /usage limit/);
+
+  const status = await api('GET', '/ai/status', { token: t });
+  assert.equal(status.data.usage.limit, 2);
+  assert.equal(status.data.usage.used, 2);
+  delete process.env.NULLCODE_AI_DAILY_LIMIT;
+});
+
+async function collectChat(token, projectId, prompt, into) {
+  const res = await fetch(`${baseUrl}/api/projects/${projectId}/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ prompt }),
+  });
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    for (const line of buf.split('\n')) {
+      if (line.trim()) { try { into.push(JSON.parse(line)); } catch { /* partial */ } }
+    }
+    buf = '';
+  }
+}

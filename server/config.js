@@ -54,6 +54,11 @@ config.platform = {
   apiKey: process.env.NULLCODE_AI_API_KEY || '',
   model: process.env.NULLCODE_AI_MODEL || '',
   label: process.env.NULLCODE_AI_LABEL || 'NULLCODE default model',
+  dailyLimit: Number(process.env.NULLCODE_AI_DAILY_LIMIT) || 0,
+};
+
+config.ai = {
+  timeoutMs: Number(process.env.NULLCODE_AI_TIMEOUT_MS) || 180000,
 };
 
 // Optional free local path: if a local Ollama server is running, NULLCODE can

@@ -232,6 +232,10 @@ body {
 .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
 .account-info { font-size: 14px; color: var(--ink-2); margin-bottom: 10px; }
 .pair-code { font-family: var(--mono); font-size: 20px; letter-spacing: 0.2em; color: var(--ink); }
+.ai-tier { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; }
+.ai-tier-name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.retry-row { display: flex; gap: 8px; margin-top: 6px; }
+.retry-btn { font-size: 13px; padding: 5px 12px; }
 .prov-list { margin-top: 10px; display: grid; gap: 6px; }
 .prov-item {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;

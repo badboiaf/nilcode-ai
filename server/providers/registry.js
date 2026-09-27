@@ -7,6 +7,36 @@ import { existsSync, readFileSync } from 'node:fs';
 import config from '../config.js';
 import { readJson, writeJson, ensureDir } from '../store.js';
 
+// Maps provider HTTP failures onto the user-facing taxonomy; full detail is
+// logged server-side and attached to AIError.detail (never serialized to UI).
+function providerErrorMessage(cred, status, body) {
+  return `${cred.label || cred.baseUrl || cred.type} responded ${status}: ${String(body).slice(0, 300)}`;
+}
+
+// ------------------------------------------------------- user-facing errors --
+// Errors carry a stable code the UI maps to friendly copy. Raw provider
+// details stay in server logs only — they never reach a browser.
+export class AIError extends Error {
+  constructor(code, userMessage, detail) {
+    super(userMessage);
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
+export const AI_ERRORS = {
+  NOT_CONFIGURED: 'NULLCODE AI is not configured yet.',
+  UNAVAILABLE: 'NULLCODE AI is temporarily unavailable. Please try again in a moment.',
+  RATE_LIMITED: "You've reached your current usage limit. Your allowance resets tomorrow.",
+  INVALID_REQUEST: "NULLCODE couldn't process that request. Try rephrasing or shortening it.",
+  AUTH_REQUIRED: 'Sign in to use NULLCODE.',
+};
+
+export function logAIError(scope, detail) {
+  // Operator diagnostics live in server logs only.
+  console.error(`[ai] ${scope}:`, detail);
+}
+
 // ---------------------------------------------------------------- adapters --
 
 // OpenAI-style multimodal content: text + image_url data URLs.
@@ -41,11 +71,19 @@ async function chatOpenAICompatible(cred, messages, opts) {
       temperature: opts.temperature ?? 0.2,
       max_tokens: opts.maxTokens ?? 4096,
     }),
-    signal: AbortSignal.timeout(opts.timeoutMs ?? 180000),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? (Number(config.ai?.timeoutMs) || 180000)),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`${cred.label || cred.baseUrl} error ${res.status}: ${body.slice(0, 300)}`);
+    const message = providerErrorMessage(cred, res.status, body);
+    if (res.status === 401 || res.status === 403) {
+      logAIError('auth failure', message);
+      throw new AIError('UNAVAILABLE', AI_ERRORS.UNAVAILABLE, message);
+    }
+    if (res.status === 429) throw new AIError('RATE_LIMITED', AI_ERRORS.RATE_LIMITED, message);
+    if (res.status >= 500) throw new AIError('UNAVAILABLE', AI_ERRORS.UNAVAILABLE, message);
+    logAIError('request rejected', message);
+    throw new AIError('INVALID_REQUEST', AI_ERRORS.INVALID_REQUEST, message);
   }
   const data = await res.json();
   return {
@@ -86,11 +124,19 @@ async function chatAnthropic(cred, messages, opts) {
       system: system || undefined,
       messages: rest,
     }),
-    signal: AbortSignal.timeout(opts.timeoutMs ?? 180000),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? (Number(config.ai?.timeoutMs) || 180000)),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`${cred.label || 'Anthropic'} error ${res.status}: ${body.slice(0, 300)}`);
+    const message = providerErrorMessage(cred, res.status, body);
+    if (res.status === 401 || res.status === 403) {
+      logAIError('auth failure', message);
+      throw new AIError('UNAVAILABLE', AI_ERRORS.UNAVAILABLE, message);
+    }
+    if (res.status === 429) throw new AIError('RATE_LIMITED', AI_ERRORS.RATE_LIMITED, message);
+    if (res.status >= 500) throw new AIError('UNAVAILABLE', AI_ERRORS.UNAVAILABLE, message);
+    logAIError('request rejected', message);
+    throw new AIError('INVALID_REQUEST', AI_ERRORS.INVALID_REQUEST, message);
   }
   const data = await res.json();
   return {
@@ -221,11 +267,9 @@ export class ProviderRegistry {
   async chat(role, messages, opts = {}) {
     const candidates = await this.resolve(role);
     if (!candidates.length) {
-      throw new Error(
-        'NULLCODE has no AI model available right now. The operator needs to configure the platform AI (NULLCODE_AI_* environment variables) or start Ollama locally. You can also connect your own provider in Settings → AI.'
-      );
+      throw new AIError('NOT_CONFIGURED', AI_ERRORS.NOT_CONFIGURED, 'no providers configured');
     }
-    const errors = [];
+    const details = [];
     for (const cred of candidates) {
       try {
         const adapter = ADAPTERS[cred.type];
@@ -242,10 +286,12 @@ export class ProviderRegistry {
           ...out,
         };
       } catch (err) {
-        errors.push(`${cred.label}: ${err.message}`);
+        if (err instanceof AIError) throw err;
+        details.push(`${cred.label}: ${err.message}`);
       }
     }
-    throw new Error(`No AI provider could serve role "${role}". ${errors.join(' | ')}`);
+    logAIError(`all providers failed for role "${role}"`, details.join(' | '));
+    throw new AIError('UNAVAILABLE', AI_ERRORS.UNAVAILABLE, details.join(' | '));
   }
 }
 
@@ -268,10 +314,10 @@ export async function aiStatus(userId) {
     userProviders: userProviders.length,
     message: ready
       ? mode === 'platform'
-        ? 'NULLCODE AI is ready — no setup needed.'
+        ? 'Platform AI is ready — no setup needed.'
         : mode === 'local'
-          ? `Using your local model (${ollama.model}).`
+          ? 'Using the local AI model on this machine.'
           : 'Using your connected AI providers.'
-      : 'No AI model is configured yet. The operator must set the NULLCODE_AI_* environment variables or start Ollama locally; you can also connect your own provider in Settings → AI.',
+      : AI_ERRORS.NOT_CONFIGURED,
   };
 }

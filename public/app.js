@@ -331,9 +331,20 @@ function handleEvent(ev) {
     case 'assistant':
       bubble('assistant', ev.content, ev.provider);
       break;
-    case 'error':
-      bubble('assistant', ev.message);
+    case 'error': {
+      const b = bubble('assistant', ev.message);
+      if (ev.code === 'RATE_LIMITED' || ev.code === 'NOT_CONFIGURED' || ev.code === 'UNAVAILABLE') {
+        const row = document.createElement('div');
+        row.className = 'retry-row';
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-quiet retry-btn';
+        btn.textContent = 'Try again';
+        btn.addEventListener('click', () => retryLast(b));
+        row.appendChild(btn);
+        b.parentElement.appendChild(row);
+      }
       break;
+    }
     case 'done':
       stepsBox.classList.add('hidden');
       break;
@@ -344,6 +355,19 @@ function setStatus(text, cls = '') {
   const el = $('statusPill');
   el.textContent = text;
   el.className = `status ${cls}`;
+}
+
+// Re-sends the last user message when an AI failure was transient.
+function retryLast(bubbleEl) {
+  const row = bubbleEl.parentElement;
+  let node = row?.previousElementSibling;
+  while (node && !node.classList.contains('msg')) node = node.previousElementSibling;
+  if (node?.classList.contains('msg') && node.classList.contains('user')) {
+    const text = node.querySelector('.bubble')?.textContent || '';
+    if (text) { $('prompt').value = text; send(); }
+  } else {
+    setStatus('Nothing to retry', 'status-err');
+  }
 }
 
 // ============================================================ ATTACHMENTS ==
@@ -553,7 +577,11 @@ async function doPublish() {
 async function refreshAiStatus() {
   try {
     const s = await api('/ai/status');
-    $('aiStatus').textContent = s.message;
+    const lines = [s.message];
+    if (s.mode === 'platform' && s.usage) {
+      lines.push(`Platform usage today: ${s.usage.used}/${s.usage.limit} requests.`);
+    }
+    $('aiStatus').textContent = lines.join(' ');
   } catch (err) {
     $('aiStatus').textContent = 'AI status unavailable.';
   }

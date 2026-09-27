@@ -171,8 +171,13 @@
 
     <section class="settings-section">
       <h3 class="panel-title">AI</h3>
-      <p id="aiStatus" class="hint">Checking AI availability…</p>
-      <div class="settings-grid">
+      <div class="ai-tier">
+        <div class="ai-tier-name">Platform AI</div>
+        <p id="aiStatus" class="hint">Checking availability…</p>
+      </div>
+      <div class="ai-tier">
+        <div class="ai-tier-name">Your providers <span class="optional">optional</span></div>
+        <div class="settings-grid">
         <select id="provType" class="input">
           <option value="openai-compatible">OpenAI-compatible (OpenAI, Groq, DeepSeek…)</option>
           <option value="anthropic">Anthropic</option>
@@ -186,6 +191,11 @@
       </div>
       <button id="provAdd" class="btn btn-quiet">Connect provider</button>
       <div id="provList" class="prov-list"></div>
+      </div>
+      <div class="ai-tier">
+        <div class="ai-tier-name">Ollama <span class="optional">optional · local</span></div>
+        <p class="hint">If you run Ollama on this machine, NULLCODE detects it automatically and uses it when no other provider is configured.</p>
+      </div>
     </section>
 
     <section class="settings-section">
