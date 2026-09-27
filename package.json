@@ -1,7 +1,7 @@
 {
-  "name": "nullcode",
+  "name": "nilcode-ai",
   "version": "0.1.0",
-  "description": "NULLCODE — AI-powered autonomous software development environment",
+  "description": "NILCODE AI — AI-powered autonomous software development environment",
   "type": "module",
   "main": "server/index.js",
   "scripts": {
@@ -9,7 +9,9 @@
     "dev": "node --watch server/index.js",
     "test": "node --test --test-force-exit",
     "install:browsers": "npx playwright install chromium",
-    "build:exe": "node scripts/build-exe.mjs"
+    "build:exe": "node scripts/build-exe.mjs",
+    "build:desktop": "node scripts/build-desktop.mjs",
+    "build:desktop:mac": "node scripts/build-desktop.mjs --mac"
   },
   "license": "MIT",
   "engines": {
@@ -21,6 +23,8 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.24.0",
     "playwright-core": "^1.48.0",
     "postject": "^1.0.0-alpha.6"

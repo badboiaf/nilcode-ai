@@ -1,5 +1,5 @@
 // Desktop session handoff. A signed-in web user can generate a short-lived,
-// single-use pairing code; a NULLCODE desktop instance redeems it to create
+// single-use pairing code; a NILCODE AI desktop instance redeems it to create
 // its local session for the same account. No Google client secrets and no
 // long-lived tokens ever live inside the desktop binary.
 import { randomBytes } from 'node:crypto';
@@ -41,10 +41,10 @@ export function consumePairingCode(code) {
   return { userId: entry.userId };
 }
 
-// Desktop-side: redeem a code against the central NULLCODE web deployment.
+// Desktop-side: redeem a code against the central NILCODE AI web deployment.
 export async function redeemViaCentral(code) {
   const base = (config.centralUrl || '').replace(/\/$/, '');
-  if (!base) throw new Error('No central NULLCODE URL configured (NULLCODE_CENTRAL_URL).');
+  if (!base) throw new Error('No central NILCODE AI URL configured (NULLCODE_CENTRAL_URL).');
   const res = await fetch(`${base}/api/desktop/pair-code/redeem`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

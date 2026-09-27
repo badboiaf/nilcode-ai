@@ -1,4 +1,4 @@
-// Generates raster app icons from the NULLCODE brand marks:
+// Generates raster app icons from the NILCODE AI brand marks:
 // PNG sizes (16–1024), Windows .ico (PNG-compressed entries), macOS .icns.
 // Playwright (already a devDependency) renders the SVG to PNG; the ICO/ICNS
 // containers are assembled directly — PNG entries are valid in both formats.
@@ -81,10 +81,10 @@ function buildIcns(pngs) {
   }
 
   writeFileSync(
-    join(OUT, 'nullcode.ico'),
+    join(OUT, 'nilcode-ai.ico'),
     buildIco(pngs.filter((p) => [16, 32, 48, 64, 128, 256].includes(p.size)))
   );
-  writeFileSync(join(OUT, 'nullcode.icns'), buildIcns(pngs));
+  writeFileSync(join(OUT, 'nilcode-ai.icns'), buildIcns(pngs));
   console.log('icons written to build/icons');
   process.exit(0);
 })();

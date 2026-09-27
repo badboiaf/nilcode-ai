@@ -1,4 +1,4 @@
-// NULLCODE foundation tests: end-to-end API coverage with per-user isolation.
+// NILCODE AI foundation tests: end-to-end API coverage with per-user isolation.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -8,6 +8,7 @@ import { join } from 'node:path';
 process.env.NULLCODE_DATA_DIR = mkdtempSync(join(tmpdir(), 'nullcode-test-'));
 process.env.NULLCODE_NO_LISTEN = '1';
 process.env.NULLCODE_ALLOW_OLLAMA = '0'; // tests must not depend on host AI state
+process.env.NULLCODE_DISABLE_AUTO_AI = '1'; // tests must never call real external AI providers
 
 const { default: app } = await import('../server/index.js');
 const { stopAll } = await import('../server/runtime/serve.js');
@@ -51,7 +52,7 @@ test('health: static index served', async () => {
   const res = await fetch(`${baseUrl}/`);
   assert.equal(res.status, 200);
   const html = await res.text();
-  assert.match(html, /NULLCODE/);
+  assert.match(html, /NILCODE/);
   assert.match(html, /brand\/logo-light\.svg/);
 });
 
@@ -107,11 +108,11 @@ test('project lifecycle + isolation between users', async () => {
   // File write + read within A's project; traversal blocked.
   const w = await api('PUT', `/projects/${pid}/files`, {
     token: ta,
-    body: { path: 'hello.txt', content: 'hi from NULLCODE' },
+    body: { path: 'hello.txt', content: 'hi from NILCODE' },
   });
   assert.equal(w.status, 200);
   const r = await api('GET', `/projects/${pid}/files?path=hello.txt`, { token: ta });
-  assert.equal(r.data.content, 'hi from NULLCODE');
+  assert.equal(r.data.content, 'hi from NILCODE');
   const evil = await api('GET', `/projects/${pid}/files?path=../secret.txt`, { token: ta });
   assert.equal(evil.status, 400);
 
@@ -158,13 +159,13 @@ test('agent chat without configured AI answers honestly (no fake success)', asyn
   const tree = await api('GET', `/projects/${pid}/files?tree=1`, { token: t });
   assert.equal(tree.data.tree.includes('index.html'), false);
 
-  // .nullcode project index exists with the stored intent.
+  // .nullcode project index exists with the stored intent (internal dir name).
   const idx = await api('GET', `/projects/${pid}/files?path=.nullcode/intent.json`, { token: t });
   assert.equal(idx.status, 200);
   assert.match(JSON.parse(idx.data.content).description, /car rental/);
 
   // Run works; preview of an intentionally empty project serves 404
-  // (documented behavior: nothing to preview until NULLCODE builds it).
+  // (documented behavior: nothing to preview until NILCODE AI builds it).
   const run = await api('POST', `/projects/${pid}/run`, { token: t });
   assert.equal(run.status, 200);
   const preview = await fetch(run.data.url);

@@ -1,7 +1,7 @@
-// The NULLCODE agent engine.
+// The NILCODE AI agent engine.
 // Pipeline: understand → plan (real AI) → implement with tools → report.
 // Every response comes from a configured AI provider. If no provider is
-// available, NULLCODE says so honestly — it never fakes success.
+// available, the agent says so honestly — it never fakes success.
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { ProviderRegistry } from '../providers/registry.js';
@@ -12,7 +12,7 @@ import config from '../config.js';
 import { logAIError } from '../providers/registry.js';
 import { recordUsage } from '../ai-usage.js';
 
-const SYSTEM_PERSONA = `You are NULLCODE, an autonomous software development agent.
+const SYSTEM_PERSONA = `You are NILCODE AI, an autonomous software development agent.
 The user may not know how to program. Explain in clear, plain language when you talk to them.
 You operate inside a project directory with these tools:
 - write_file(path, content) — create or update a file
@@ -147,7 +147,7 @@ export async function runAgent({ user, project, prompt, emit, attachments }) {
   } catch (err) {
     // Friendly user copy; full provider detail goes to server logs only.
     const code = err.code || 'UNAVAILABLE';
-    const message = err.message || 'NULLCODE AI is temporarily unavailable.';
+    const message = err.message || 'NILCODE AI is temporarily unavailable.';
     logAIError('chat failed', err.detail || err.message);
     appendMessage(user.id, project.id, { role: 'assistant', content: `⚠️ ${message}`, aiError: code });
     emitSafe({ type: 'error', message, code });
@@ -228,7 +228,7 @@ async function executeStep({ step, projectDir, registry, prompt, context }) {
       return tools.indexProject(projectDir);
     case 'git_commit': {
       await localGit.ensureRepo(projectDir);
-      return localGit.commit(projectDir, step.details || prompt.slice(0, 60) || 'NULLCODE change');
+      return localGit.commit(projectDir, step.details || prompt.slice(0, 60) || 'NILCODE change');
     }
     case 'test': {
       const file = step.path || step.details || 'index.html';

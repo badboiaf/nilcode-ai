@@ -1,4 +1,4 @@
-// NULLCODE GitHub module. Uses a per-user personal access token (PAT) stored in
+// NILCODE AI GitHub module. Uses a per-user personal access token (PAT) stored in
 // the user's isolated credentials file. OAuth app flow can be layered on top of
 // these same helpers later without changing the API surface.
 import { join } from 'node:path';
@@ -37,7 +37,7 @@ async function api(userId, path, { method = 'GET', body } = {}) {
     headers: {
       accept: 'application/vnd.github+json',
       authorization: `Bearer ${token}`,
-      'user-agent': 'NULLCODE',
+      'user-agent': 'NILCODE',
     },
     body: body ? JSON.stringify(body) : undefined,
   });

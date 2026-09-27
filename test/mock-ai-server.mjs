@@ -1,4 +1,4 @@
-// Minimal OpenAI-compatible mock server for tests. Verifies that NULLCODE
+// Minimal OpenAI-compatible mock server for tests. Verifies that NILCODE AI
 // actually round-trips to an AI backend (planner + coder roles) instead of
 // simulating results locally.
 import http from 'node:http';

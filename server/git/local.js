@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { git } from '../agent/tools.js';
 
 export async function ensureRepo(projectDir) {
-  // A parent repo (e.g. NULLCODE's own checkout) must NOT be reused:
+  // A parent repo (e.g. NILCODE AI's own checkout) must NOT be reused:
   // every project gets its own nested repository.
   if (!existsSync(join(projectDir, '.git'))) {
     await git(projectDir, ['init', '-b', 'main']);

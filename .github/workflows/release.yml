@@ -25,10 +25,10 @@ jobs:
         shell: pwsh
         run: |
           $iscc = (Get-ChildItem "C:\Program Files*\Inno Setup*\ISCC.exe" | Select-Object -First 1).FullName
-          & $iscc scripts/nullcode.iss
+          & $iscc scripts/nilcode-ai.iss
       - uses: actions/upload-artifact@v4
         with:
-          name: NULLCODE-windows-x64-installer
+          name: NILCODE-windows-x64-installer
           path: dist/*.exe
 
   macos:
@@ -47,7 +47,29 @@ jobs:
         run: bash scripts/mac-bundle.sh x64
       - uses: actions/upload-artifact@v4
         with:
-          name: NULLCODE-macos
+          name: NILCODE-macos
           path: |
-            dist/NULLCODE-macOS-arm64.dmg
-            dist/mac/NULLCODE.app
+            dist/NILCODE-macOS-arm64.dmg
+            dist/mac/NILCODE.app
+
+  # Native desktop apps (Electron shell around the same server + UI).
+  desktop:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      # Robustness for runners that block lifecycle scripts:
+      - run: node node_modules/electron/install.js
+      - run: npm run build:desktop -- ${{ matrix.os == 'macos-latest' && '--mac' || '--win' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NILCODE-AI-desktop-${{ matrix.os }}
+          path: |
+            desktop/dist-desktop/*.exe
+            desktop/dist-desktop/*.dmg

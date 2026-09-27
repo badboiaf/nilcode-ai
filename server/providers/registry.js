@@ -25,11 +25,11 @@ export class AIError extends Error {
 }
 
 export const AI_ERRORS = {
-  NOT_CONFIGURED: 'NULLCODE AI is not configured yet.',
-  UNAVAILABLE: 'NULLCODE AI is temporarily unavailable. Please try again in a moment.',
+  NOT_CONFIGURED: 'NILCODE AI is not configured yet.',
+  UNAVAILABLE: 'NILCODE AI is temporarily unavailable. Please try again in a moment.',
   RATE_LIMITED: "You've reached your current usage limit. Your allowance resets tomorrow.",
-  INVALID_REQUEST: "NULLCODE couldn't process that request. Try rephrasing or shortening it.",
-  AUTH_REQUIRED: 'Sign in to use NULLCODE.',
+  INVALID_REQUEST: "NILCODE AI couldn't process that request. Try rephrasing or shortening it.",
+  AUTH_REQUIRED: 'Sign in to use NILCODE AI.',
 };
 
 export function logAIError(scope, detail) {
@@ -224,6 +224,14 @@ export class ProviderRegistry {
     return null;
   }
 
+  // Built-in server-managed providers (OpenRouter / Gemini / Groq). Used only
+  // when the operator has NOT configured an explicit platform provider via
+  // NULLCODE_AI_* — explicit operator configuration always wins.
+  platformAutoProviders() {
+    if (this.platformProvider()) return [];
+    return (config.platformAutoProviders || []).map((p) => ({ ...p, platform: true }));
+  }
+
   // Free local fallback: a running Ollama instance, if allowed and present.
   async ollamaProvider() {
     if (!config.allowOllama || !existsSync(config.ollamaStatusFile)) return null;
@@ -251,7 +259,8 @@ export class ProviderRegistry {
   }
 
   // Resolve candidates for a role, user providers first (their keys, their
-  // quotas), then the platform-managed default, then local Ollama if present.
+  // quotas), then the platform-managed default, then the built-in provider
+  // chain (OpenRouter/Gemini/Groq), then local Ollama if present.
   async resolve(role) {
     const priority = ROLE_PRIORITY[role] ?? ROLE_PRIORITY.coder;
     const candidates = [...this.available()].sort(
@@ -259,6 +268,7 @@ export class ProviderRegistry {
     );
     const platform = this.platformProvider();
     if (platform) candidates.push(platform);
+    candidates.push(...this.platformAutoProviders());
     const ollama = await this.ollamaProvider();
     if (ollama) candidates.push(ollama);
     return candidates;
@@ -299,25 +309,32 @@ export function validateCredential(cred) {
   return ADAPTERS[cred.type] ? null : `Unknown provider type: ${cred.type}`;
 }
 
-// Answers "is NULLCODE AI usable right now, and through which path?"
+// Answers "is NILCODE AI usable right now, and through which path?"
 export async function aiStatus(userId) {
   const reg = new ProviderRegistry(userId);
   const platform = reg.platformProvider();
+  const auto = reg.platformAutoProviders();
   const ollama = await reg.ollamaProvider();
   const userProviders = reg.list();
-  const mode = userProviders.length ? 'own-keys' : platform ? 'platform' : ollama ? 'local' : 'none';
+  const mode = userProviders.length
+    ? 'own-keys'
+    : platform || auto.length
+      ? 'platform'
+      : ollama
+        ? 'local'
+        : 'none';
   const ready = mode !== 'none';
   return {
     ready,
     mode,
-    defaultModel: platform ? platform.model : ollama ? ollama.model : null,
+    defaultModel: platform ? platform.model : auto.length ? auto[0].model : ollama ? ollama.model : null,
     userProviders: userProviders.length,
     message: ready
-      ? mode === 'platform'
-        ? 'Platform AI is ready — no setup needed.'
+      ? mode === 'own-keys'
+        ? 'Using your connected AI providers.'
         : mode === 'local'
           ? 'Using the local AI model on this machine.'
-          : 'Using your connected AI providers.'
+          : 'Platform AI is ready — no setup needed.'
       : AI_ERRORS.NOT_CONFIGURED,
   };
 }

@@ -172,7 +172,7 @@ export function readContext(projectDir) {
   return out;
 }
 
-// The project description is the initial intent/context NULLCODE builds from.
+// The project description is the initial intent/context NILCODE AI builds from.
 export function setProjectIntent(projectDir, description) {
   const metaDir = join(projectDir, '.nullcode');
   mkdirSync(metaDir, { recursive: true });

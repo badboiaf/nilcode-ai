@@ -1,0 +1,10 @@
+{
+  "name": "nilcode-ai-desktop",
+  "productName": "NILCODE AI",
+  "version": "0.1.0",
+  "description": "NILCODE AI — AI-powered autonomous software development environment",
+  "main": "main.cjs",
+  "author": "XEER0",
+  "private": true,
+  "license": "MIT"
+}

@@ -1,13 +1,13 @@
-// NULLCODE authentication. Deliberately tiny — no workspace code is loaded here.
+// NILCODE AI authentication. Deliberately tiny — no workspace code is loaded here.
 (() => {
   const $ = (id) => document.getElementById(id);
   let mode = 'signin'; // existing users sign in; new users create an account
 
   function render() {
     const signin = mode === 'signin';
-    $('authTitle').textContent = signin ? 'Sign in to NULLCODE' : 'Create your NULLCODE account';
+    $('authTitle').textContent = signin ? 'Sign in to NILCODE AI' : 'Create your NILCODE AI account';
     $('authSub').textContent = signin
-      ? 'Use your account to access your NULLCODE workspace.'
+      ? 'Use your account to access your NILCODE AI workspace.'
       : 'A few details and your workspace is ready.';
     $('authSubmit').textContent = signin ? 'Sign in' : 'Create account';
     $('authName').classList.toggle('hidden', signin);
@@ -33,7 +33,7 @@
     const submit = $('authSubmit');
     submit.disabled = true;
     try {
-      const res = await fetch('/api/auth/google', {
+      const res = await fetch('api/auth/google', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ credential }),
@@ -61,7 +61,7 @@
     const submit = $('authSubmit');
     submit.disabled = true;
     try {
-      const res = await fetch(`/api/auth/${mode === 'signin' ? 'login' : 'signup'}`, {
+      const res = await fetch(`api/auth/${mode === 'signin' ? 'login' : 'signup'}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(

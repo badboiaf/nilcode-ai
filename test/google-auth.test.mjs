@@ -1,5 +1,5 @@
 // Google authentication tests. Generates a real RSA keypair, serves a fake
-// discovery/JWKS, signs real ID tokens, and verifies NULLCODE's full
+// discovery/JWKS, signs real ID tokens, and verifies NILCODE AI's full
 // verification + account-linking flow without touching google.com.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,6 +48,7 @@ const discoveryUrl = `http://127.0.0.1:${jwksServer.address().port}/.well-known/
 process.env.NULLCODE_DATA_DIR = mkdtempSync(join(tmpdir(), 'nullcode-google-test-'));
 process.env.NULLCODE_NO_LISTEN = '1';
 process.env.NULLCODE_ALLOW_OLLAMA = '0';
+process.env.NULLCODE_DISABLE_AUTO_AI = '1'; // tests must never call real external AI providers
 process.env.NULLCODE_GOOGLE_CLIENT_ID = CLIENT_ID;
 
 const configModule = await import('../server/config.js');

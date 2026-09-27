@@ -1,4 +1,4 @@
-// NULLCODE application. This bundle loads only for signed-in users.
+// NILCODE AI application. This bundle loads only for signed-in users.
 const $ = (id) => document.getElementById(id);
 
 let token = localStorage.getItem('nc_token') || '';
@@ -8,7 +8,9 @@ let sending = false;
 let wired = false;
 
 const api = async (path, opts = {}) => {
-  const res = await fetch(`/api${path}`, {
+  // Relative /api reference: works at root AND under a base path
+  // (e.g. xeer0.online/nilcode-live) without any frontend changes.
+  const res = await fetch(`api${path}`, {
     headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     ...opts,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
@@ -23,13 +25,13 @@ let mode = 'signin';
 
 function renderAuthMode() {
   const signin = mode === 'signin';
-  $('authTitle').textContent = signin ? 'Sign in to NULLCODE' : 'Create your NULLCODE account';
+  $('authTitle').textContent = signin ? 'Sign in to NILCODE AI' : 'Create your NILCODE AI account';
   $('authSub').textContent = signin
-    ? 'Use your account to access your NULLCODE workspace.'
+    ? 'Use your account to access your NILCODE AI workspace.'
     : 'A few details and your workspace is ready.';
   $('authSubmit').textContent = signin ? 'Sign in' : 'Create account';
   $('authName').classList.toggle('hidden', !signin ? false : true);
-  $('authSwitchLabel').classList.toggle('hidden', !signin);  // "New to NULLCODE?"
+  $('authSwitchLabel').classList.toggle('hidden', !signin);  // "New to NILCODE AI?"
   $('authSwitch').classList.toggle('hidden', !signin);       // → Create an account
   $('authSwitchLabel2').classList.toggle('hidden', signin);  // "Already have an account?"
   $('authSwitch2').classList.toggle('hidden', signin);       // → Sign in
@@ -154,7 +156,7 @@ async function selectProject(p) {
 }
 
 function renderProjectEmpty() {
-  $('projTitle').textContent = 'NULLCODE';
+  $('projTitle').textContent = 'NILCODE';
   $('chat').innerHTML = '';
   $('chatEmpty').classList.remove('hidden');
 }
@@ -172,7 +174,7 @@ async function newProject() {
     await loadProjects();
     await selectProject(data.project);
     if (description) {
-      bubble('assistant', `Project context saved. When you describe what to build, NULLCODE will work from: “${description}”`);
+      bubble('assistant', `Project context saved. When you describe what to build, NILCODE AI will work from: “${description}”`);
     }
   } catch (ex) {
     alert(ex.message);
@@ -265,7 +267,7 @@ async function send() {
   stepsBox.classList.remove('hidden');
 
   try {
-    const res = await fetch(`/api/projects/${project.id}/chat`, {
+    const res = await fetch(`api/projects/${project.id}/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
       body: JSON.stringify({ prompt }),
@@ -426,7 +428,7 @@ async function uploadAttachments() {
   if (!attachments.length || !project) return [];
   const fd = new FormData();
   for (const a of attachments) fd.append('files', a.file, a.name);
-  const res = await fetch(`/api/projects/${project.id}/attachments`, {
+  const res = await fetch(`api/projects/${project.id}/attachments`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}` },
     body: fd,
@@ -651,7 +653,7 @@ function openSettings() {
 
 async function commitNow() {
   if (!project) return;
-  const msg = prompt('Commit message:', 'Update from NULLCODE');
+  const msg = prompt('Commit message:', 'Update from NILCODE');
   if (!msg) return;
   try {
     const r = await api(`/projects/${project.id}/git/commit`, { method: 'POST', body: { message: msg } });

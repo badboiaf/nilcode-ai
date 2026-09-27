@@ -13,3 +13,7 @@ coverage/
 *.exe
 *.blob
 *.cjs
+desktop/dist-desktop/
+desktop/server-bundle.cjs
+desktop/app-server/
+.electron-cache/

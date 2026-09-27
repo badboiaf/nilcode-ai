@@ -1,5 +1,5 @@
 // Free local AI fallback: detect a running Ollama instance and remember the
-// best available model. Runs in the background; NULLCODE never requires it.
+// best available model. Runs in the background; NILCODE AI never requires it.
 import { writeFile, mkdir } from 'node:fs/promises';
 import config from '../config.js';
 

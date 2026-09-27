@@ -1,8 +1,8 @@
-// NULLCODE Windows executable build pipeline (Node SEA — no Electron).
+// NILCODE AI Windows executable build pipeline (Node SEA — no Electron).
 // 1. Bundle server ESM into one CJS file (esbuild, server deps external to node).
 // 2. Generate the SEA config + blob with `node --experimental-sea-config`.
 // 3. Copy the node.exe binary and inject the blob with postject.
-// 4. Assemble dist/NULLCODE/ with public/, .env.example, README.
+// 4. Assemble dist/NILCODE/ with public/, .env.example, README.
 // Usage: npm run build:exe
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, copyFileSync, writeFileSync, existsSync, readFileSync, chmodSync } from 'node:fs';
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BUILD = join(ROOT, 'build');
-const DIST = join(ROOT, 'dist', 'NULLCODE');
+const DIST = join(ROOT, 'dist', 'NILCODE');
 const NODE_EXE = process.execPath;
 
 function step(name) { console.log(`\n== ${name}`); }
@@ -33,7 +33,7 @@ run(process.execPath, [
   '--platform=node',
   '--format=cjs',
   '--target=node20',
-  '--outfile=' + join(BUILD, 'nullcode.cjs'),
+  '--outfile=' + join(BUILD, 'nilcode-ai.cjs'),
   '--external:playwright-core',
   '--log-level=warning',
 ]);
@@ -41,12 +41,12 @@ run(process.execPath, [
 step('sea config + blob');
 writeFileSync(
   join(BUILD, 'sea-config.json'),
-  JSON.stringify({ main: join(BUILD, 'nullcode.cjs'), output: join(BUILD, 'sea-prep.blob'), disableExperimentalSEAWarning: true }, null, 2)
+  JSON.stringify({ main: join(BUILD, 'nilcode-ai.cjs'), output: join(BUILD, 'sea-prep.blob'), disableExperimentalSEAWarning: true }, null, 2)
 );
 run(process.execPath, ['--experimental-sea-config', join(BUILD, 'sea-config.json')]);
 
 step('copy node binary + inject blob');
-const exeName = process.platform === 'win32' ? 'NULLCODE.exe' : 'nullcode';
+const exeName = process.platform === 'win32' ? 'NILCODE.exe' : 'nilcode-ai';
 const exePath = join(BUILD, exeName);
 copyFileSync(NODE_EXE, exePath);
 if (process.platform !== 'win32') chmodSync(exePath, 0o755);
@@ -73,8 +73,9 @@ for (const f of ['logo-light.svg', 'logo-dark.svg', 'icon-light.svg', 'icon-dark
 writeFileSync(
   join(DIST, '.env.example'),
   [
-    '# NULLCODE configuration (rename to .env next to NULLCODE.exe)',
-    '# All values are optional — NULLCODE runs without them.',
+    '# NILCODE AI configuration (rename to .env next to NILCODE.exe)',
+    '# All values are optional — NILCODE AI runs without them.',
+    '# (Environment variable names keep the historical NULLCODE_ prefix.)',
     '',
     '# Server',
     'PORT=4310',
@@ -86,6 +87,13 @@ writeFileSync(
     '# NULLCODE_AI_API_KEY=your-key-here',
     '# NULLCODE_AI_MODEL=llama-3.3-70b-versatile',
     '',
+    '# Built-in providers (server-side only; used when NULLCODE_AI_* is not set)',
+    '# OPENROUTER_API_KEY=sk-or-...',
+    '# GEMINI_API_KEY=...',
+    '# GEMINI_MODEL=gemini-flash-latest',
+    '# GROQ_API_KEY=gsk_...',
+    '# GROQ_MODEL=openai/gpt-oss-120b',
+    '',
     '# Google sign-in (from Google Cloud Console, see README-GOOGLE.md)',
     '# NULLCODE_GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com',
     '',
@@ -96,12 +104,12 @@ writeFileSync(
 writeFileSync(
   join(DIST, 'README.txt'),
   [
-    'NULLCODE — standalone Windows build',
-    '===================================',
+    'NILCODE AI — standalone Windows build',
+    '=====================================',
     '',
-    '1. Keep NULLCODE.exe in the same folder as the public/ folder.',
+    '1. Keep NILCODE.exe in the same folder as the public/ folder.',
     '2. (Optional) Create a .env file for AI/Google configuration (see .env.example).',
-    '3. Double-click NULLCODE.exe, then open http://localhost:4310',
+    '3. Double-click NILCODE.exe, then open http://localhost:4310',
     '',
     'All user data (accounts, projects, attachments) is stored in the',
     '.nullcode-data folder next to the executable. Delete it to reset the app.',

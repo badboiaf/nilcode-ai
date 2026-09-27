@@ -1,4 +1,4 @@
-// NULLCODE server entry point.
+// NILCODE AI server entry point.
 import express from 'express';
 import { createReadStream } from 'node:fs';
 import { join } from 'node:path';
@@ -98,7 +98,7 @@ api.post('/projects', requireAuth, (req, res) => {
   const desc = String(description || '').trim();
   const p = projects.createProject(req.user.id, { name: String(name).trim().slice(0, 80), description: desc });
   // The description is the project's initial intent — it becomes the context
-  // NULLCODE builds from, not just stored metadata.
+  // NILCODE AI builds from, not just stored metadata.
   if (desc) tools.setProjectIntent(p.path, desc);
   tools.indexProject(p.path);
   res.json({ project: p });
@@ -166,7 +166,7 @@ api.get('/projects/:id/git', requireAuth, async (req, res) => {
 api.post('/projects/:id/git/commit', requireAuth, async (req, res) => {
   const p = projects.getProject(req.user.id, req.params.id);
   if (!p) return res.status(404).json({ error: 'Project not found.' });
-  res.json(await localGit.commit(p.path, String(req.body?.message || 'NULLCODE change')));
+  res.json(await localGit.commit(p.path, String(req.body?.message || 'NILCODE change')));
 });
 
 api.post('/projects/:id/git/checkpoint', requireAuth, async (req, res) => {
@@ -422,11 +422,38 @@ app.get('*', (req, res, next) => {
   res.status(404).end('Not found');
 });
 
-export default app;
+// Optional base-path mounting (NILCODE_BASE_PATH=/nilcode-live): lets this
+// exact server live under a sub-path of a larger site behind a proxy, with
+// zero frontend changes — all frontend URLs are relative. Unset (default)
+// behaves exactly as before (standalone + desktop).
+function mountAtBase(inner, base) {
+  const trimmed = base.replace(/\/+$/, '');
+  const prefix = `${trimmed}/`;
+  const outer = express();
+  outer.use((req, res, next) => {
+    if (req.url === trimmed || req.url === prefix || req.url.startsWith(prefix)) {
+      // Serve the app directly at both the bare base path and base+/ so any
+      // reverse proxy works: some (e.g. Next.js rewrites behind a default
+      // trailingSlash:false config) redirect the trailing-slash form back to
+      // the bare path, which would loop forever if we 308'd bare → slash.
+      // Relative frontend URLs resolve identically under both forms.
+      // originalUrl is rewritten too: serve-static compares the two and, if
+      // originalUrl lacks a trailing slash while the path is '/', it 301s
+      // back to the mount prefix — which would loop against such proxies.
+      req.originalUrl = req.url = req.url.slice(trimmed.length) || '/';
+      return inner(req, res, next);
+    }
+    return res.redirect(302, prefix);
+  });
+  return outer;
+}
+
+const publicApp = config.basePath ? mountAtBase(app, config.basePath) : app;
+export default publicApp;
 
 // Allow both `npm start` and test imports.
 if (process.env.NULLCODE_NO_LISTEN !== '1') {
-  app.listen(config.port, config.host, () => {
-    console.log(`NULLCODE running at http://${config.host}:${config.port}`);
+  publicApp.listen(config.port, config.host, () => {
+    console.log(`NILCODE AI running at http://${config.host}:${config.port}${config.basePath}`);
   });
 }

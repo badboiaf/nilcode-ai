@@ -1,4 +1,4 @@
-// Real-AI-path tests: NULLCODE must round-trip to an actual AI backend.
+// Real-AI-path tests: NILCODE AI must round-trip to an actual AI backend.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -9,6 +9,7 @@ import { startMockAI } from './mock-ai-server.mjs';
 process.env.NULLCODE_DATA_DIR = mkdtempSync(join(tmpdir(), 'nullcode-ai-test-'));
 process.env.NULLCODE_NO_LISTEN = '1';
 process.env.NULLCODE_ALLOW_OLLAMA = '0'; // tests must not depend on host AI state
+process.env.NULLCODE_DISABLE_AUTO_AI = '1'; // the built-in provider chain is covered by auto-ai.test.mjs
 
 // Start the mock AI and point the platform config at it BEFORE the server
 // modules load — provider configuration is read at module initialization.
@@ -56,7 +57,7 @@ async function api(method, path, { token, body } = {}) {
   return { status: res.status, data };
 }
 
-test('ai/status reports platform mode when NULLCODE_AI_* is configured', async () => {
+test('ai/status reports platform mode when NULLCODE_AI_* env is configured', async () => {
   const u = await api('POST', '/auth/signup', { body: { email: 'ai@example.com', password: 'secret1', name: 'AI' } });
   const s = await api('GET', '/ai/status', { token: u.data.token });
   assert.equal(s.status, 200);

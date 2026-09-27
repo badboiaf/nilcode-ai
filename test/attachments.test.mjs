@@ -9,6 +9,7 @@ import { join } from 'node:path';
 process.env.NULLCODE_DATA_DIR = mkdtempSync(join(tmpdir(), 'nullcode-att-test-'));
 process.env.NULLCODE_NO_LISTEN = '1';
 process.env.NULLCODE_ALLOW_OLLAMA = '0';
+process.env.NULLCODE_DISABLE_AUTO_AI = '1'; // tests must never call real external AI providers
 
 const { default: app } = await import('../server/index.js');
 const { stopAll } = await import('../server/runtime/serve.js');
@@ -48,7 +49,7 @@ function signup(email) {
 }
 
 function uploadPart(token, path, filename, contentType, content) {
-  const boundary = '----nullcodetest' + Math.random().toString(36).slice(2);
+  const boundary = '----nilcodetest' + Math.random().toString(36).slice(2);
   const pre = Buffer.from(
     `--${boundary}\r\ncontent-disposition: form-data; name="files"; filename="${filename}"\r\ncontent-type: ${contentType}\r\n\r\n`
   );

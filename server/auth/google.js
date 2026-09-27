@@ -35,10 +35,10 @@ export function googleStatus() {
 }
 
 // Verify a Google ID token produced by the GIS JavaScript client and
-// link-or-create the NULLCODE account. Returns { user, created }.
+// link-or-create the NILCODE AI account. Returns { user, created }.
 export async function authenticateWithGoogle(credential) {
   if (!googleConfigured()) {
-    throw new Error('Google sign-in is not configured on this NULLCODE instance.');
+    throw new Error('Google sign-in is not configured on this NILCODE AI instance.');
   }
   if (!credential || typeof credential !== 'string' || credential.length < 50) {
     throw new Error('Invalid Google credential.');

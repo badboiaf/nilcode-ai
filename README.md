@@ -1,9 +1,9 @@
-# NULLCODE
+# NILCODE AI
 
-**NULLCODE** is a premium AI coding workspace. Describe software in normal human language —
-NULLCODE plans, builds, runs, tests and maintains it.
+**NILCODE AI** is a premium AI coding workspace. Describe software in normal human language —
+NILCODE AI plans, builds, runs, tests and maintains it.
 
-NULLCODE by XEER0 · © 2026 XEER0
+NILCODE AI by XEER0 · © 2026 XEER0
 
 ## Quickstart
 
@@ -17,7 +17,7 @@ in the chat.
 
 ## AI — works out of the box for operators, zero setup for users
 
-Ordinary users never configure API keys. NULLCODE resolves AI in this order:
+Ordinary users never configure API keys. NILCODE AI resolves AI in this order:
 
 1. **Your connected providers** (Settings → AI) — your keys, your quotas, kept per-user and never exposed.
 2. **Platform default model** — the operator configures a server-managed provider once:
@@ -30,7 +30,11 @@ Ordinary users never configure API keys. NULLCODE resolves AI in this order:
    npm start
    ```
 
-3. **Local Ollama** (free, on your own machine) — detected automatically when running.
+3. **Built-in providers** — with no operator configuration at all, the server uses its
+   own OpenRouter → Gemini → Groq chain (server-side keys only). Each reads an optional
+   model/base-URL override from env (`OPENROUTER_MODEL`, `GEMINI_MODEL`, `GROQ_MODEL`,
+   `*_BASE_URL`, `*_LABEL`); set none and sensible current defaults apply.
+4. **Local Ollama** (free, on your own machine) — detected automatically when running.
 
 Optional operator controls:
 
@@ -46,15 +50,15 @@ a clear limit message with a reset time. Provider credentials never leave the se
 
 | Situation | User sees |
 |---|---|
-| No platform AI configured | "NULLCODE AI is not configured yet." |
-| Provider outage / auth failure | "NULLCODE AI is temporarily unavailable. Please try again in a moment." + retry |
+| No platform AI configured | "NILCODE AI is not configured yet." |
+| Provider outage / auth failure | "NILCODE AI is temporarily unavailable. Please try again in a moment." + retry |
 | Daily limit reached | "You've reached your current usage limit…" + reset time |
-| Provider rejects the request | "NULLCODE couldn't process that request." |
-| Not signed in | "Sign in to use NULLCODE." |
+| Provider rejects the request | "NILCODE AI couldn't process that request." |
+| Not signed in | "Sign in to use NILCODE AI." |
 
 Detailed provider errors are logged server-side only.
 
-If no AI path is available, NULLCODE says so honestly. It never fakes results, never
+If no AI path is available, NILCODE AI says so honestly. It never fakes results, never
 simulates "completed" work, and never ships secret keys to clients.
 
 ## Product behavior
@@ -81,11 +85,34 @@ never artificial usage quotas.
 ## Windows executable
 
 ```bash
-npm run build:exe   # produces dist/NULLCODE/ with NULLCODE.exe + public/
+npm run build:exe   # produces dist/NILCODE/ with NILCODE.exe + public/
 ```
 
-Run `NULLCODE.exe`, open http://localhost:4310. All data lives in `.nullcode-data`
+Run `NILCODE.exe`, open http://localhost:4310. All data lives in `.nullcode-data`
 next to the exe; configure AI/Google via a `.env` file (see `.env.example` in the dist).
+
+## Desktop applications (Windows & macOS)
+
+Real desktop apps around the same server and UI (Electron shell, no product logic in
+the shell — same UI, same auth, same AI, same uploads):
+
+```bash
+npm run build:desktop          # current platform → desktop/dist-desktop/
+npm run build:desktop:mac      # on a macOS host: arm64 + x64 DMGs
+```
+
+- **Windows**: `NILCODE AI Setup <version>.exe` (NSIS installer, desktop + start-menu
+  shortcuts, proper uninstall). Smoke-tested end-to-end on Windows: install/launch,
+  signup, projects, real AI round-trip, file upload, settings.
+- **macOS**: `NILCODE AI.app` + per-arch DMGs (arm64 & x64), hardened-runtime
+  entitlements included. **Built only for CI; runtime on real Mac hardware is still
+  untested** — unsigned builds need right-click → Open on first launch.
+- Keys/config live in the per-user `.env` (`%APPDATA%/NILCODE AI/.env` on Windows,
+  `~/Library/Application Support/NILCODE AI/.env` on macOS). **No API keys are ever
+  embedded in the binaries.**
+- Google sign-in works: the GIS popup opens inside the app window and pairs directly
+  with the server-side verification; no client secrets anywhere.
+- The standalone SEA build (`npm run build:exe`) remains available unchanged.
 
 ## Google sign-in
 
@@ -114,5 +141,6 @@ server/providers/  Model adapters (OpenAI-compatible, Anthropic, Ollama) + routi
 server/git/        Local git + GitHub modules
 server/runtime/    Dev-server manager, Playwright browser testing
 public/            Web interface (auth-first boot, streaming chat, settings)
+desktop/           Electron shell + electron-builder config (real desktop apps)
 test/              Node built-in test suites
 ```

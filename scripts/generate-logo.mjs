@@ -1,5 +1,5 @@
-// NULLCODE logo generator.
-// Two-line typographic mark: "</NULL" / "CODE>" — monoline geometric letterforms
+// NILCODE AI logo generator.
+// Two-line typographic mark: "</NIL" / "CODE>" — monoline geometric letterforms
 // drawn as precise stroke paths so light/dark versions share identical geometry.
 // Run: node scripts/generate-logo.mjs
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -22,6 +22,7 @@ const GLYPHS = {
   N: { w: 66, d: ['M7,0 L7,100', 'M7,0 L59,100', 'M59,0 L59,100'] },
   U: { w: 70, d: ['M7,0 L7,65 A28,28 0 0 0 63,65 L63,0'] },
   L: { w: 58, d: ['M7,0 L7,100 L58,100'] },
+  I: { w: 14, d: ['M7,0 L7,100'] },
   C: { w: 80, d: ['M69.75,25.91 A36,36 0 1 0 69.75,74.09'] },
   O: { w: 78, d: ['M39,7 A32,43 0 1 0 39.01,7 Z'] }, // full ellipse as arc pair
   D: { w: 74, d: ['M7,0 L7,100', 'M7,7 L24,7 A43,43 0 0 1 24,93 L7,93'] },
@@ -62,7 +63,7 @@ ${body}
 }
 
 function wordmark(fg, bg) {
-  const l1 = ['chevL', 'slash', 'N', 'U', 'L', 'L'];
+  const l1 = ['chevL', 'slash', 'N', 'I', 'L'];
   const l2 = ['C', 'O', 'D', 'E', 'chevR'];
   const w1 = measure(l1);
   const w2 = measure(l2);
@@ -72,8 +73,8 @@ function wordmark(fg, bg) {
     fg,
     bg,
     paths: [
-      ...linePath(l1, (W - w1) / 2, PAD).paths,
-      ...linePath(l2, (W - w2) / 2, PAD + 100 + LINE_GAP).paths,
+      ...linePath(l1, PAD, PAD).paths,
+      ...linePath(l2, PAD, PAD + 100 + LINE_GAP).paths,
     ],
   };
   return svg(doc, W, H);
