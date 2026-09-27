@@ -13,6 +13,9 @@ coverage/
 *.exe
 *.blob
 *.cjs
+# …but the Electron desktop entry point and builder config are source code:
+!desktop/main.cjs
+!desktop/builder.config.cjs
 desktop/dist-desktop/
 desktop/server-bundle.cjs
 desktop/app-server/

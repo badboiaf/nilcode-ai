@@ -9,6 +9,9 @@ on:
   push:
     tags: ['v*']
 
+permissions:
+  contents: write # the release job publishes installers to the GitHub Release
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -44,13 +47,13 @@ jobs:
       - name: macOS arm64 (Apple Silicon)
         run: bash scripts/mac-bundle.sh arm64 --dmg
       - name: macOS x64 (Intel)
-        run: bash scripts/mac-bundle.sh x64
+        run: bash scripts/mac-bundle.sh x64 --dmg
       - uses: actions/upload-artifact@v4
         with:
           name: NILCODE-macos
           path: |
             dist/NILCODE-macOS-arm64.dmg
-            dist/mac/NILCODE.app
+            dist/NILCODE-macOS-x64.dmg
 
   # Native desktop apps (Electron shell around the same server + UI).
   desktop:
@@ -67,9 +70,55 @@ jobs:
       # Robustness for runners that block lifecycle scripts:
       - run: node node_modules/electron/install.js
       - run: npm run build:desktop -- ${{ matrix.os == 'macos-latest' && '--mac' || '--win' }}
+      - name: Normalize Windows installer name
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Get-ChildItem "desktop/dist-desktop/*.exe" | ForEach-Object {
+            Rename-Item $_.FullName "NILCODE-AI-Setup.exe"
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: NILCODE-AI-desktop-${{ matrix.os }}
           path: |
             desktop/dist-desktop/*.exe
             desktop/dist-desktop/*.dmg
+
+  # Publish every built installer to the GitHub Release for the pushed tag.
+  # Runs only on tag pushes (manual dispatch builds artifacts without
+  # overwriting an existing release).
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-release
+          pattern: NILCODE-*
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p assets
+          # The desktop (Electron) builds are the user-facing installers:
+          #   NILCODE-AI-Setup.exe          Windows x64 NSIS
+          #   NILCODE-AI-arm64.dmg          macOS Apple Silicon
+          #   NILCODE-AI-x64.dmg            macOS Intel
+          # Version-less names keep the …/releases/latest/download/<name>
+          # URLs stable across releases. The standalone (SEA/Inno) variants
+          # remain available as workflow artifacts.
+          find dist-release -type f -name 'NILCODE-AI-*' -exec cp {} assets/ \;
+          ls -la assets/
+          COUNT=$(find assets -type f | wc -l)
+          if [ "$COUNT" -ne 3 ]; then
+            echo "Expected exactly 3 installers, found $COUNT" >&2
+            exit 1
+          fi
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "NILCODE AI ${TAG#v}" \
+            --generate-notes \
+            assets/*
