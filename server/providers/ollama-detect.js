@@ -1,7 +1,12 @@
 // Free local AI fallback: detect a running Ollama instance and remember the
 // best available model. Runs in the background; NULLCODE never requires it.
-import { writeFile } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import config from '../config.js';
+
+async function writeStatus(data) {
+  await mkdir(config.dataDir, { recursive: true });
+  await writeFile(config.ollamaStatusFile, JSON.stringify(data, null, 2));
+}
 
 const OLLAMA_BASE = process.env.NULLCODE_OLLAMA_URL || 'http://127.0.0.1:11434';
 
@@ -21,16 +26,10 @@ export async function probeOllama() {
       const pb = MODEL_PREFERENCE.test(b) ? 0 : 1;
       return pa - pb || a.localeCompare(b);
     });
-    await writeFile(
-      config.ollamaStatusFile,
-      JSON.stringify({ available: true, model: ids[0], models: ids, baseUrl: `${OLLAMA_BASE}/v1`, checkedAt: new Date().toISOString() }, null, 2)
-    );
+    await writeStatus({ available: true, model: ids[0], models: ids, baseUrl: `${OLLAMA_BASE}/v1`, checkedAt: new Date().toISOString() });
     return { available: true, model: ids[0] };
   } catch {
-    await writeFile(
-      config.ollamaStatusFile,
-      JSON.stringify({ available: false, checkedAt: new Date().toISOString() }, null, 2)
-    );
+    try { await writeStatus({ available: false, checkedAt: new Date().toISOString() }); } catch { /* read-only fs */ }
     return { available: false };
   }
 }

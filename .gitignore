@@ -10,3 +10,6 @@ nullcode.db-*
 dist/
 build/
 coverage/
+*.exe
+*.blob
+*.cjs

@@ -24,6 +24,30 @@
     render();
   }
 
+  // Google sign-in (only rendered when the server has it configured).
+  document.addEventListener('nc-google-credential', async () => {
+    const credential = window.__ncGoogleCredential;
+    if (!credential) return;
+    const err = $('authError');
+    err.textContent = '';
+    const submit = $('authSubmit');
+    submit.disabled = true;
+    try {
+      const res = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ credential }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Google sign-in failed.');
+      localStorage.setItem('nc_token', data.token);
+      location.reload();
+    } catch (ex) {
+      err.textContent = ex.message;
+      submit.disabled = false;
+    }
+  });
+
   $('authSwitch').addEventListener('click', (e) => { e.preventDefault(); setMode('signup'); });
   $('authSwitch2').addEventListener('click', (e) => { e.preventDefault(); setMode('signin'); });
 

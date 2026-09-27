@@ -25,6 +25,11 @@
         <button type="submit" id="authSubmit" class="btn btn-primary btn-block">Sign in</button>
       </form>
 
+      <div id="googleBtnWrap" class="google-wrap hidden">
+        <div id="googleBtn"></div>
+        <div class="or-divider"><span>or</span></div>
+      </div>
+
       <p class="auth-switch">
         <span id="authSwitchLabel">New to NULLCODE?</span>
         <a href="#" id="authSwitch" class="link">Create an account</a>
@@ -212,6 +217,30 @@
         var a = document.createElement('script');
         a.src = '/auth.js';
         document.body.appendChild(a);
+        // Google button loads only when the server reports it is configured.
+        fetch('/api/auth/google/status')
+          .then(function (r) { return r.json(); })
+          .then(function (s) {
+            if (!s.enabled) return;
+            document.getElementById('googleBtnWrap').classList.remove('hidden');
+            var g = document.createElement('script');
+            g.src = 'https://accounts.google.com/gsi/client';
+            g.onload = function () {
+              google.accounts.id.initialize({
+                client_id: s.clientId,
+                callback: function (resp) {
+                  window.__ncGoogleCredential = resp.credential;
+                  var evt = new CustomEvent('nc-google-credential');
+                  document.dispatchEvent(evt);
+                },
+              });
+              google.accounts.id.renderButton(document.getElementById('googleBtn'), {
+                theme: 'outline', size: 'large', shape: 'pill', text: 'continue_with', width: 320,
+              });
+            };
+            document.body.appendChild(g);
+          })
+          .catch(function () {});
         return;
       }
       var s = document.createElement('script');

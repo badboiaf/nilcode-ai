@@ -73,7 +73,7 @@ function projectContextText(context) {
   return lines.length ? lines.join('\n') : '(empty workspace)';
 }
 
-export async function planWithModel(registry, { prompt, context, conversation }) {
+export async function planWithModel(registry, { prompt, context, conversation, attachments }) {
   const messages = [
     { role: 'system', content: SYSTEM_PERSONA },
     {
@@ -81,6 +81,7 @@ export async function planWithModel(registry, { prompt, context, conversation })
       content: [
         `Project context:\n${projectContextText(context)}`,
         conversation ? `Recent conversation:\n${conversation}` : '',
+        attachments?.text,
         `Current request: ${prompt}`,
         'Produce the JSON response now (array of steps, or {"reply": "..."}).',
       ]
@@ -88,7 +89,11 @@ export async function planWithModel(registry, { prompt, context, conversation })
         .join('\n\n'),
     },
   ];
-  const res = await registry.chat('planner', messages, { maxTokens: 3000, temperature: 0.2 });
+  const res = await registry.chat('planner', messages, {
+    maxTokens: 3000,
+    temperature: 0.2,
+    images: attachments?.images || [],
+  });
   const text = res.text.trim();
   // Parse either a steps array or a conversational reply object.
   const arrMatch = text.match(/\[[\s\S]*\]/);
@@ -107,7 +112,7 @@ export async function planWithModel(registry, { prompt, context, conversation })
 
 // ------------------------------------------------------------------ execution --
 
-export async function runAgent({ user, project, prompt, emit }) {
+export async function runAgent({ user, project, prompt, emit, attachments }) {
   const emitSafe = (e) => { try { emit(e); } catch { /* client gone */ } };
   const registry = new ProviderRegistry(user.id);
   const projectDir = project.path;
@@ -119,6 +124,9 @@ export async function runAgent({ user, project, prompt, emit }) {
   emitSafe({ type: 'status', text: 'Reading the project…' });
   let context = {};
   try { context = tools.readContext(projectDir); } catch { /* empty */ }
+  if (attachments?.text) {
+    emitSafe({ type: 'status', text: `Using ${attachments.images.length ? `${attachments.images.length} image(s) and ` : ''}${attachments.text.split('Attachment — ').length - 1} attachment(s) as context…` });
+  }
 
   // 2. Plan / converse via the real AI path. No fallback, no simulation.
   emitSafe({ type: 'status', text: 'Thinking…' });
@@ -128,6 +136,7 @@ export async function runAgent({ user, project, prompt, emit }) {
       prompt,
       context,
       conversation: recentConversation(user.id, project.id, 8),
+      attachments,
     });
   } catch (err) {
     const message = err.message || 'The AI backend is unavailable.';

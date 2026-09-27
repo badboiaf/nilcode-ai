@@ -4,7 +4,6 @@ const $ = (id) => document.getElementById(id);
 let token = localStorage.getItem('nc_token') || '';
 let user = null;
 let project = null;
-let attachments = [];
 let sending = false;
 let wired = false;
 
@@ -220,6 +219,22 @@ async function send() {
   const text = input.value.trim();
   if (!text && !attachments.length) return;
 
+  // Persist attachments to isolated per-user storage; they become project
+  // context the AI can reference in this and later requests.
+  let uploaded = [];
+  if (attachments.length) {
+    setStatus('Uploading attachments…');
+    try {
+      uploaded = await uploadAttachments();
+    } catch (err) {
+      bubble('assistant', `Attachment upload failed: ${err.message}`);
+      return;
+    }
+  }
+  const attachmentNote = uploaded.length
+    ? '\n\n' + uploaded.map((a) => `[Attached: ${a.name} (${a.kind})]`).join('\n')
+    : '';
+
   // First message with no project: create one from the request itself so the
   // user can simply describe what they want and go.
   if (!project) {
@@ -234,13 +249,10 @@ async function send() {
     }
   }
 
-  let prompt = text;
-  for (const a of attachments) {
-    prompt += `\n\n[Attachment: ${a.name}]\n` + (a.text != null ? '```\n' + a.text + '\n```' : `(${a.type || 'file'}, ${a.size} bytes — binary content not shown)`);
-  }
   attachments = [];
   renderAttachments();
 
+  const prompt = text + attachmentNote;
   input.value = '';
   input.style.height = 'auto';
   sending = true;
@@ -335,21 +347,8 @@ function setStatus(text, cls = '') {
 }
 
 // ============================================================ ATTACHMENTS ==
-$('fileInput').addEventListener('change', async () => {
-  for (const file of $('fileInput').files) {
-    if (file.size > 500 * 1024) {
-      alert(`"${file.name}" is too large for inline context (${Math.round(file.size / 1024)} KB). The inline limit is 500 KB per file.`);
-      continue;
-    }
-    const isTextish = /\.(txt|md|json|js|mjs|cjs|ts|tsx|jsx|css|html|htm|py|go|rs|java|yml|yaml|xml|csv|env|sh)$/i.test(file.name) || file.type.startsWith('text/');
-    const att = { name: file.name, size: file.size, type: file.type || 'file', text: null };
-    if (isTextish) att.text = await file.text();
-    attachments.push(att);
-    if (attachments.length >= 8) break;
-  }
-  $('fileInput').value = '';
-  renderAttachments();
-});
+const MAX_INLINE_BYTES = 500 * 1024; // inline text preview limit per file
+let attachments = [];
 
 function renderAttachments() {
   const box = $('attachments');
@@ -358,7 +357,19 @@ function renderAttachments() {
   for (const a of attachments) {
     const chip = document.createElement('span');
     chip.className = 'chip chip-attach';
-    chip.textContent = `${a.name} (${Math.max(1, Math.round(a.size / 1024))} KB)`;
+    if (a.kind === 'image' && a.dataUrl) {
+      const img = document.createElement('img');
+      img.src = a.dataUrl;
+      img.className = 'chip-thumb';
+      chip.appendChild(img);
+      const label = document.createElement('span');
+      label.textContent = a.name;
+      chip.appendChild(label);
+    } else {
+      const label = document.createElement('span');
+      label.textContent = `${a.name} (${Math.max(1, Math.round(a.size / 1024))} KB)`;
+      chip.appendChild(label);
+    }
     const x = document.createElement('button');
     x.textContent = '✕';
     x.className = 'x';
@@ -367,6 +378,55 @@ function renderAttachments() {
     box.appendChild(chip);
   }
 }
+
+function acceptFiles(files) {
+  for (const file of files) {
+    const att = { name: file.name, size: file.size, type: file.type || 'file', kind: null, text: null, dataUrl: null, file };
+    if (file.type.startsWith('image/')) {
+      att.kind = 'image';
+      const reader = new FileReader();
+      reader.onload = () => { att.dataUrl = reader.result; renderAttachments(); };
+      reader.readAsDataURL(file);
+    } else if (file.type.startsWith('text/') || /\.(txt|md|log|json|js|ts|css|html|py|csv|ya?ml|xml)$/i.test(file.name)) {
+      att.kind = 'text';
+      if (file.size <= MAX_INLINE_BYTES) file.text().then((t) => { att.text = t; renderAttachments(); });
+    } else {
+      att.kind = 'file';
+    }
+    attachments.push(att);
+  }
+  renderAttachments();
+}
+
+async function uploadAttachments() {
+  if (!attachments.length || !project) return [];
+  const fd = new FormData();
+  for (const a of attachments) fd.append('files', a.file, a.name);
+  const res = await fetch(`/api/projects/${project.id}/attachments`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}` },
+    body: fd,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Upload failed.');
+  return data.attachments || [];
+}
+
+$('fileInput').addEventListener('change', () => { acceptFiles(Array.from($('fileInput').files)); $('fileInput').value = ''; });
+
+['dragenter', 'dragover'].forEach((evt) =>
+  document.addEventListener(evt, (e) => { e.preventDefault(); document.body.classList.add('dragging'); })
+);
+['dragleave', 'drop'].forEach((evt) =>
+  document.addEventListener(evt, (e) => { e.preventDefault(); if (evt === 'drop' || e.relatedTarget === null) document.body.classList.remove('dragging'); })
+);
+document.addEventListener('drop', (e) => {
+  if (e.dataTransfer?.files?.length) acceptFiles(Array.from(e.dataTransfer.files));
+});
+document.addEventListener('paste', (e) => {
+  const files = Array.from(e.clipboardData?.files || []);
+  if (files.length) { e.preventDefault(); acceptFiles(files); }
+});
 
 // ================================================================ CONTEXT ==
 async function refreshContext() {

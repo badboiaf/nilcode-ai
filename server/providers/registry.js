@@ -9,9 +9,26 @@ import { readJson, writeJson, ensureDir } from '../store.js';
 
 // ---------------------------------------------------------------- adapters --
 
+// OpenAI-style multimodal content: text + image_url data URLs.
+function openAiContentWithImages(text, images) {
+  return [
+    { type: 'text', text },
+    ...images.map((i) => ({ type: 'image_url', image_url: { url: `data:${i.mime};base64,${i.base64}` } })),
+  ];
+}
+
 async function chatOpenAICompatible(cred, messages, opts) {
   if (!cred.baseUrl) throw new Error(`${cred.label || 'Provider'} has no base URL configured.`);
   if (!cred.model) throw new Error(`${cred.label || 'Provider'} has no model configured.`);
+  const outMessages = opts.images?.length
+    ? [
+        ...messages.slice(0, -1),
+        {
+          ...messages[messages.length - 1],
+          content: openAiContentWithImages(messages[messages.length - 1].content, opts.images),
+        },
+      ]
+    : messages;
   const res = await fetch(`${cred.baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -20,7 +37,7 @@ async function chatOpenAICompatible(cred, messages, opts) {
     },
     body: JSON.stringify({
       model: cred.model,
-      messages,
+      messages: outMessages,
       temperature: opts.temperature ?? 0.2,
       max_tokens: opts.maxTokens ?? 4096,
     }),
@@ -37,10 +54,25 @@ async function chatOpenAICompatible(cred, messages, opts) {
   };
 }
 
+// Anthropic multimodal blocks: text + base64 image sources.
+function anthropicContentWithImages(text, images) {
+  return [
+    { type: 'text', text },
+    ...images.map((i) => ({
+      type: 'image',
+      source: { type: 'base64', media_type: i.mime, data: i.base64 },
+    })),
+  ];
+}
+
 async function chatAnthropic(cred, messages, opts) {
   if (!cred.apiKey) throw new Error(`${cred.label || 'Anthropic'} has no API key configured.`);
   const system = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n');
-  const rest = messages.filter((m) => m.role !== 'system');
+  const rest = messages.filter((m) => m.role !== 'system').map((m, i, arr) =>
+    i === arr.length - 1 && opts.images?.length
+      ? { ...m, content: anthropicContentWithImages(m.content, opts.images) }
+      : m
+  );
   const res = await fetch(`${cred.baseUrl || 'https://api.anthropic.com'}/v1/messages`, {
     method: 'POST',
     headers: {

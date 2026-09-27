@@ -46,6 +46,33 @@ export function publicUser(u) {
   return { id: u.id, email: u.email, name: u.name, createdAt: u.createdAt };
 }
 
+// Create-or-link an account from a verified external identity (e.g. Google).
+// Password-less accounts can only sign in through that identity.
+export function upsertExternalUser({ email, name, provider, providerId, picture }) {
+  const id = String(email).trim().toLowerCase();
+  const existing = users.data[id];
+  if (existing) {
+    existing[`${provider}Id`] = existing[`${provider}Id`] || providerId;
+    existing.name = existing.name || name;
+    existing.picture = picture || existing.picture || null;
+    users.save();
+    return { user: publicUser(existing), created: false };
+  }
+  users.data[id] = {
+    id,
+    email: id,
+    name: name || id.split('@')[0],
+    salt: null,
+    passwordHash: null,
+    [`${provider}Id`]: providerId,
+    picture: picture || null,
+    createdAt: Date.now(),
+  };
+  users.save();
+  ensureDir(join(config.usersDir, id));
+  return { user: publicUser(users.data[id]), created: true };
+}
+
 export function createSession(userId) {
   const t = token(32);
   sessions.data[t] = { userId, createdAt: Date.now() };

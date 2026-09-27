@@ -78,6 +78,9 @@ body {
 .auth-sub { color: var(--muted); font-size: 14px; margin: 0 0 28px; }
 .auth-form { display: grid; gap: 10px; text-align: left; }
 .auth-form .btn { margin-top: 6px; }
+.google-wrap { margin: 4px 0 14px; display: grid; justify-items: center; }
+.or-divider { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; width: 100%; margin-top: 12px; }
+.or-divider::before, .or-divider::after { content: ''; height: 1px; background: var(--line); flex: 1; }
 .auth-switch { font-size: 14px; color: var(--muted); margin: 22px 0 0; }
 .auth-error { color: var(--err); font-size: 13px; min-height: 18px; margin: 12px 0 0; }
 .auth-foot { color: var(--muted); font-size: 12px; margin-top: 48px; }

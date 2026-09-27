@@ -46,6 +46,29 @@ simulates "completed" work, and never ships secret keys to clients.
 - **GitHub**: optional. Add a token in Settings → GitHub to publish repositories.
 - **Multi-user**: isolated workspaces, conversations, credentials and memory per account.
 
+## Attachments
+
+Attach screenshots, images, PDFs, code, logs, documents and ZIP archives via the
+composer's attach button, drag-and-drop anywhere, or pasting a screenshot. Files are
+stored in per-user isolated storage, indexed with type-appropriate analysis (text
+excerpts, PDF text extraction, ZIP structure listing), and selected per request by the
+context engine — pinned files stay as persistent project context and explicitly named
+files are always included. The only limits are infrastructure ones (100 MB per file),
+never artificial usage quotas.
+
+## Windows executable
+
+```bash
+npm run build:exe   # produces dist/NULLCODE/ with NULLCODE.exe + public/
+```
+
+Run `NULLCODE.exe`, open http://localhost:4310. All data lives in `.nullcode-data`
+next to the exe; configure AI/Google via a `.env` file (see `.env.example` in the dist).
+
+## Google sign-in
+
+Optional, identity-only, verified server-side. Setup steps: see **README-GOOGLE.md**.
+
 ## Project context (.nullcode/)
 
 Each project keeps a compact understanding index in `.nullcode/` (`project.json`,

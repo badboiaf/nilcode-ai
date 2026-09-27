@@ -2,18 +2,23 @@
 // Chromium browser has not been downloaded yet (`npm run install:browsers`),
 // testing degrades gracefully with a clear instruction instead of crashing.
 let playwright = null;
-try {
-  playwright = await import('playwright-core');
-} catch {
-  playwright = null;
+async function loadPlaywright() {
+  if (playwright !== null) return playwright;
+  try {
+    playwright = await import('playwright-core');
+  } catch {
+    playwright = false;
+  }
+  return playwright;
 }
 
-export function browserTestingAvailable() {
-  return !!playwright;
+export async function browserTestingAvailable() {
+  return !!(await loadPlaywright());
 }
 
 export async function testSite(url, { screenshots = false } = {}) {
-  if (!playwright) {
+  const pw = await loadPlaywright();
+  if (!pw) {
     return {
       ok: false,
       skipped: true,
@@ -22,7 +27,7 @@ export async function testSite(url, { screenshots = false } = {}) {
       results: [],
     };
   }
-  const { chromium } = playwright;
+  const { chromium } = pw;
   let browser;
   const consoleErrors = [];
   const results = [];

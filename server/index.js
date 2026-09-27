@@ -1,5 +1,6 @@
 // NULLCODE server entry point.
 import express from 'express';
+import { createReadStream } from 'node:fs';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import config from './config.js';
@@ -8,12 +9,16 @@ import * as projects from './projects.js';
 import { ProviderRegistry } from './providers/registry.js';
 import { runAgent, loadConversation } from './agent/engine.js';
 import { aiStatus } from './providers/registry.js';
+import { authenticateWithGoogle, googleStatus } from './auth/google.js';
 import * as tools from './agent/tools.js';
 import * as localGit from './git/local.js';
 import * as github from './git/github.js';
 import * as serve from './runtime/serve.js';
 import { testSite } from './runtime/browsertest.js';
 import { startOllamaWatcher } from './providers/ollama-detect.js';
+import Busboy from 'busboy';
+import { MAX_FILE_BYTES, ingestUpload, listAttachments, getAttachment, pinAttachment, deleteAttachment, publicMeta } from './attachments/attachments.js';
+import { selectAttachments, buildAttachmentContext, imageToDataUrl } from './attachments/context.js';
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -45,6 +50,21 @@ api.post('/auth/login', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Wrong email or password.' });
   const t = auth.createSession(user.id);
   res.json({ token: t, user });
+});
+
+api.get('/auth/google/status', (req, res) => {
+  res.json(googleStatus());
+});
+
+api.post('/auth/google', async (req, res) => {
+  try {
+    const { credential } = req.body || {};
+    const { user, created } = await authenticateWithGoogle(credential);
+    const t = auth.createSession(user.id);
+    res.json({ token: t, user, created });
+  } catch (err) {
+    res.status(401).json({ error: err.message });
+  }
 });
 
 api.post('/auth/logout', requireAuth, (req, res) => {
@@ -203,6 +223,78 @@ api.post('/projects/:id/publish', requireAuth, async (req, res) => {
   }
 });
 
+// ------------------------------------------------------------ attachments --
+api.post('/projects/:id/attachments', requireAuth, (req, res) => {
+  const p = projects.getProject(req.user.id, req.params.id);
+  if (!p) return res.status(404).json({ error: 'Project not found.' });
+  let busboy;
+  try {
+    busboy = Busboy({ headers: req.headers, limits: { fileSize: MAX_FILE_BYTES, files: 20 } });
+  } catch {
+    return res.status(400).json({ error: 'Expected a multipart upload.' });
+  }
+  const saved = [];
+  const failures = [];
+  const pending = [];
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    // Respond only after every ingest has settled (close can beat async I/O).
+    Promise.allSettled(pending).then(() => {
+      if (done) return;
+      done = true;
+      res.json({ attachments: saved, failures });
+    });
+  };
+  busboy.on('file', (name, stream, info) => {
+    const filename = info.filename || 'unnamed';
+    stream.on('limit', () => failures.push({ file: filename, error: `File exceeds the ${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB infrastructure limit.` }));
+    const run = ingestUpload({
+      userId: req.user.id,
+      projectId: p.id,
+      conversationId: null,
+      messageRef: null,
+      file: { filename, mime: info.mimeType, stream },
+    });
+    pending.push(run);
+    run
+      .then((meta) => saved.push(meta))
+      .catch((err) => failures.push({ file: filename, error: err.message }));
+  });
+  busboy.on('error', (err) => { failures.push({ error: err.message }); finish(); });
+  busboy.on('close', finish);
+  req.pipe(busboy);
+});
+
+api.get('/attachments', requireAuth, (req, res) => {
+  res.json({
+    attachments: listAttachments(req.user.id, {
+      projectId: req.query.projectId || undefined,
+      conversationId: req.query.conversationId || undefined,
+    }),
+  });
+});
+
+api.get('/attachments/:attId/content', requireAuth, (req, res) => {
+  const a = getAttachment(req.user.id, req.params.attId);
+  if (!a) return res.status(404).json({ error: 'Attachment not found.' });
+  res.setHeader('content-type', a.mime || 'application/octet-stream');
+  res.setHeader('content-disposition', `inline; filename="${encodeURIComponent(a.name)}"`);
+  const stream = createReadStream(a.absPath);
+  stream.on('error', () => res.destroy());
+  stream.pipe(res);
+});
+
+api.post('/attachments/:attId/pin', requireAuth, (req, res) => {
+  const a = pinAttachment(req.user.id, req.params.attId, !!(req.body?.pinned ?? true));
+  if (!a) return res.status(404).json({ error: 'Attachment not found.' });
+  res.json({ attachment: a });
+});
+
+api.delete('/attachments/:attId', requireAuth, (req, res) => {
+  res.json({ deleted: deleteAttachment(req.user.id, req.params.attId) });
+});
+
 // ----------------------------------------------------------------- AI status --
 api.get('/ai/status', requireAuth, async (req, res) => {
   res.json(await aiStatus(req.user.id));
@@ -270,7 +362,12 @@ app.post('/api/projects/:id/chat', requireAuth, async (req, res) => {
   });
   const emit = (event) => res.write(`${JSON.stringify(event)}\n`);
   try {
-    await runAgent({ user: req.user, project: p, prompt, emit });
+    // Context engine: choose which of the user's attachments are relevant
+    // (pinned project files, this conversation's uploads, explicit mentions).
+    const index = listAttachments(req.user.id, { projectId: p.id });
+    const selected = selectAttachments({ userId: req.user.id, projectId: p.id, prompt, index });
+    const attachments = selected.length ? await buildAttachmentContext({ userId: req.user.id, selected }) : { text: '', images: [] };
+    await runAgent({ user: req.user, project: p, prompt, emit, attachments });
   } catch (err) {
     emit({ type: 'error', message: err.message });
   }
