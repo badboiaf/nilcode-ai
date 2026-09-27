@@ -664,6 +664,14 @@ function wire() {
   $('pubCancel').addEventListener('click', () => $('publishModal').close());
 
   $('settingsBtn').addEventListener('click', openSettings);
+  $('pairGen').addEventListener('click', async () => {
+    try {
+      const d = await api('/desktop/pair-code', { method: 'POST' });
+      $('pairCode').textContent = d.code;
+    } catch (err) {
+      $('pairCode').textContent = err.message;
+    }
+  });
   $('ghSave').addEventListener('click', saveGithubToken);
   $('provAdd').addEventListener('click', addProvider);
   $('settingsClose').addEventListener('click', () => $('settingsModal').close());

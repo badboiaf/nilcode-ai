@@ -10,6 +10,7 @@ import { ProviderRegistry } from './providers/registry.js';
 import { runAgent, loadConversation } from './agent/engine.js';
 import { aiStatus } from './providers/registry.js';
 import { authenticateWithGoogle, googleStatus } from './auth/google.js';
+import { createPairingCode, peekPairingCode, consumePairingCode } from './desktop-pairing.js';
 import * as tools from './agent/tools.js';
 import * as localGit from './git/local.js';
 import * as github from './git/github.js';
@@ -293,6 +294,33 @@ api.post('/attachments/:attId/pin', requireAuth, (req, res) => {
 
 api.delete('/attachments/:attId', requireAuth, (req, res) => {
   res.json({ deleted: deleteAttachment(req.user.id, req.params.attId) });
+});
+
+// ---------------------------------------------------- desktop session handoff --
+// Signed-in web user generates a short-lived, single-use code for a desktop
+// instance. The code itself is the only credential the desktop needs to send.
+api.post('/desktop/pair-code', requireAuth, (req, res) => {
+  res.json(createPairingCode(req.user.id));
+});
+
+api.get('/desktop/pair-code/:code', (req, res) => {
+  const e = peekPairingCode(req.params.code);
+  if (!e) return res.status(404).json({ error: 'Code is invalid or expired.' });
+  res.json({ valid: true });
+});
+
+api.post('/desktop/pair-code/redeem', (req, res) => {
+  try {
+    const { code } = req.body || {};
+    const consumed = consumePairingCode(code);
+    if (!consumed) return res.status(400).json({ error: 'Code is invalid, already used, or expired.' });
+    const user = auth.getUser(consumed.userId);
+    if (!user) return res.status(400).json({ error: 'Account no longer exists.' });
+    const t = auth.createSession(user.id);
+    res.json({ token: t, user, redeemedAt: new Date().toISOString() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // ----------------------------------------------------------------- AI status --

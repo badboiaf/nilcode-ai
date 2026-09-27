@@ -189,6 +189,15 @@
     </section>
 
     <section class="settings-section">
+      <h3 class="panel-title">Desktop pairing</h3>
+      <p class="hint">Generate a one-time code while signed in here, then enter it in NULLCODE for Windows/macOS within 10 minutes to sign that app in as this account.</p>
+      <div class="settings-grid">
+        <button id="pairGen" class="btn btn-quiet">Generate pairing code</button>
+        <span id="pairCode" class="pair-code"></span>
+      </div>
+    </section>
+
+    <section class="settings-section">
       <h3 class="panel-title">GitHub</h3>
       <div class="settings-grid">
         <input id="ghToken" type="password" class="input" placeholder="GitHub token (repo scope)">

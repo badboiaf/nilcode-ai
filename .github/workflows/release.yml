@@ -1,0 +1,53 @@
+name: Release desktop builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. 0.2.0) — optional, falls back to package.json'
+        required: false
+  push:
+    tags: ['v*']
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm test
+      - run: node scripts/generate-icons.mjs
+      - run: npm run build:exe
+      - name: Build installer (Inno Setup, preinstalled on runners)
+        shell: pwsh
+        run: |
+          $iscc = (Get-ChildItem "C:\Program Files*\Inno Setup*\ISCC.exe" | Select-Object -First 1).FullName
+          & $iscc scripts/nullcode.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NULLCODE-windows-x64-installer
+          path: dist/*.exe
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm test
+      - run: node scripts/generate-icons.mjs
+      - name: macOS arm64 (Apple Silicon)
+        run: bash scripts/mac-bundle.sh arm64 --dmg
+      - name: macOS x64 (Intel)
+        run: bash scripts/mac-bundle.sh x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NULLCODE-macos
+          path: |
+            dist/NULLCODE-macOS-arm64.dmg
+            dist/mac/NULLCODE.app
