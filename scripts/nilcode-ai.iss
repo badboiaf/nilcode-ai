@@ -2,7 +2,10 @@
 ; Builds dist/NILCODE-Setup-x64.exe from the SEA executable.
 
 #define AppName "NILCODE AI"
-#define AppVersion RemoveQuotes(GetEnv("NC_VERSION"))
+; NC_VERSION may override the version at compile time; GetEnv returns an
+; unquoted value (and "" when unset), so no RemoveQuotes needed — that
+; identifier is not available in current Inno Setup ISPP builds.
+#define AppVersion GetEnv("NC_VERSION")
 #if AppVersion == ""
 #define AppVersion "0.1.0"
 #endif
