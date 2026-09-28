@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-desktop
+desktop
+build
+coverage
+*.log
+.env
+.env.*
+.nullcode-data
+.nullcode
+test
+scripts
+README*.md
+.github

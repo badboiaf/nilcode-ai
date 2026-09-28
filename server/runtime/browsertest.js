@@ -32,7 +32,13 @@ export async function testSite(url, { screenshots = false } = {}) {
   const consoleErrors = [];
   const results = [];
   try {
-    browser = await chromium.launch({ headless: true });
+    // NULLCODE_CHROMIUM_PATH points at a system Chromium (used in the Docker
+    // deployment, where Playwright's browser download is skipped).
+    const launchOptions = { headless: true };
+    if (process.env.NULLCODE_CHROMIUM_PATH) {
+      launchOptions.executablePath = process.env.NULLCODE_CHROMIUM_PATH;
+    }
+    browser = await chromium.launch(launchOptions);
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
     page.on('pageerror', (err) => consoleErrors.push(String(err)));
