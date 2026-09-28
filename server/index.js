@@ -436,11 +436,46 @@ function mountAtBase(inner, base) {
       // reverse proxy works: some (e.g. Next.js rewrites behind a default
       // trailingSlash:false config) redirect the trailing-slash form back to
       // the bare path, which would loop forever if we 308'd bare → slash.
-      // Relative frontend URLs resolve identically under both forms.
       // originalUrl is rewritten too: serve-static compares the two and, if
       // originalUrl lacks a trailing slash while the path is '/', it 301s
       // back to the mount prefix — which would loop against such proxies.
       req.originalUrl = req.url = req.url.slice(trimmed.length) || '/';
+      // The frontend uses relative URLs everywhere (styles.css, app.js,
+      // api/…). Those resolve against the DOCUMENT URL, which under a proxy
+      // may be the bare base path WITHOUT a trailing slash — making them
+      // resolve at the site root instead of under the base. Injecting
+      // <base href="{prefix}"> into HTML responses pins every relative URL
+      // to the mount prefix regardless of how the document was reached.
+      // Conditional revalidation would let stale cached HTML (served before
+      // this injection existed, or by an upstream cache) survive forever as a
+      // validator-matched 304 has no body to rewrite — so drop the validators
+      // on both sides: requests revalidate to a full 200, and injected
+      // responses carry no etag/last-modified to revalidate against.
+      if (req.method === 'GET' && (req.headers.accept || '').includes('text/html')) {
+        delete req.headers['if-none-match'];
+        delete req.headers['if-modified-since'];
+        const chunks = [];
+        const origWrite = res.write.bind(res);
+        const origEnd = res.end.bind(res);
+        res.write = (chunk, enc, cb) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, typeof enc === 'string' ? enc : 'utf8'));
+          return true;
+        };
+        res.end = (chunk, enc, cb) => {
+          if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, typeof enc === 'string' ? enc : 'utf8'));
+          const body = Buffer.concat(chunks);
+          if (String(res.getHeader('content-type') || '').includes('text/html')) {
+            const injected = Buffer.from(
+              body.toString('utf8').replace(/<head(\s[^>]*)?>/i, (m) => `${m}\n  <base href="${prefix}">`)
+            );
+            res.removeHeader('etag');
+            res.removeHeader('last-modified');
+            res.setHeader('content-length', String(injected.length));
+            return origEnd(injected);
+          }
+          return origEnd(body);
+        };
+      }
       return inner(req, res, next);
     }
     return res.redirect(302, prefix);
