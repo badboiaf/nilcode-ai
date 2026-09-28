@@ -9,6 +9,16 @@ export async function ensureRepo(projectDir) {
   // every project gets its own nested repository.
   if (!existsSync(join(projectDir, '.git'))) {
     await git(projectDir, ['init', '-b', 'main']);
+    // Fresh machines (and CI runners) often have no git identity configured,
+    // which makes every commit fail — breaking checkpoints and the AI build
+    // loop. Set a repo-local fallback when no identity is resolvable; a real
+    // global identity is never overridden.
+    const email = await git(projectDir, ['config', 'user.email']);
+    const name = await git(projectDir, ['config', 'user.name']);
+    if (!email.ok || !email.stdout.trim() || !name.ok || !name.stdout.trim()) {
+      await git(projectDir, ['config', 'user.name', 'NILCODE AI']);
+      await git(projectDir, ['config', 'user.email', 'noreply@xeer0.online']);
+    }
   }
   return true;
 }

@@ -29,8 +29,12 @@ function run(cmd, args, opts = {}) {
 }
 
 console.log('== bundle server ==');
-run(process.execPath, [
-  join(ROOT, 'node_modules', 'esbuild', 'bin', 'esbuild'),
+// esbuild's install script replaces bin/esbuild with the native binary on
+// some platforms (macOS), where piping the JS shim through node fails with a
+// SyntaxError. Try executing it directly, then fall back to the JS shim via
+// node for platforms where bin/esbuild is still JavaScript.
+const esbuildBin = join(ROOT, 'node_modules', 'esbuild', 'bin', 'esbuild');
+const esbuildArgs = [
   join(ROOT, 'server', 'index.js'),
   '--bundle',
   '--platform=node',
@@ -39,7 +43,12 @@ run(process.execPath, [
   `--outfile=${join(DESKTOP, 'server-bundle.cjs')}`,
   '--external:playwright-core',
   '--log-level=warning',
-]);
+];
+try {
+  run(esbuildBin, esbuildArgs);
+} catch {
+  run(process.execPath, [esbuildBin, ...esbuildArgs]);
+}
 
 console.log('== assemble desktop resources ==');
 mkdirSync(join(DESKTOP, 'app-server', 'public'), { recursive: true });
