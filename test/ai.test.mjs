@@ -99,7 +99,13 @@ test('agent performs a real AI build: planner + coder round-trips, files actuall
   const types = events.map((e) => e.type);
   assert.ok(types.includes('plan'), 'AI returned an executable plan');
   assert.ok(types.includes('assistant'), 'agent reported the outcome');
-  assert.equal(events[types.indexOf('assistant')].content.includes('Completed all 2 step(s)'), true);
+  assert.match(events[types.indexOf('assistant')].content, /Created the homepage/i);
+  assert.ok(types.includes('token'), 'the final answer streamed as tokens');
+
+  // Real file-change reporting (spec: “8 files created · 3 files updated”).
+  const filesEv = events.find((e) => e.type === 'files');
+  assert.ok(filesEv, 'a files event reported the changes');
+  assert.deepEqual(filesEv.created, ['index.html']);
 
   // Files were ACTUALLY written by the coder round-trip.
   const tree = await api('GET', `/projects/${pid}/files?tree=1`, { token: t });
@@ -228,6 +234,28 @@ test('platform AI usage is metered and enforced per user per day', async () => {
   assert.equal(status.data.usage.limit, 2);
   assert.equal(status.data.usage.used, 2);
   delete process.env.NULLCODE_AI_DAILY_LIMIT;
+});
+
+test('natural language never reaches the shell; the agent recovers', async () => {
+  const u = await api('POST', '/auth/signup', { body: { email: 'shell@example.com', password: 'secret1', name: 'S' } });
+  const t = u.data.token;
+  const p = await api('POST', '/projects', { token: t, body: { name: 'Shell Guard' } });
+  const pid = p.data.project.id;
+
+  // The mock model misbehaves exactly like the model that produced
+  // "'List' is not recognized": it sends a natural-language action through
+  // the shell tool. The agent must refuse it, explain, and continue.
+  const events = [];
+  await collectChat(t, pid, 'TRIGGER-LIST-BUG: show me what is in this project.', events);
+  const types = events.map((e) => e.type);
+  assert.equal(types.includes('error'), false, 'the bad tool call did not crash the run');
+  const assistant = events.find((e) => e.type === 'assistant');
+  assert.ok(assistant, 'agent still finished with a summary');
+  assert.match(assistant.content, /listed/i);
+
+  // The model received the corrective guidance on its next round.
+  const correctedCall = mock.calls.find((c) => /not a shell command/.test(JSON.stringify(c.body)));
+  assert.ok(correctedCall, 'the shell guard feedback reached the model');
 });
 
 async function collectChat(token, projectId, prompt, into) {

@@ -52,6 +52,25 @@ export function listTree(projectDir, rel = '.', depth = 3) {
   return out.slice(0, 500);
 }
 
+// Batch inspector: read several files in one call so the agent can ground
+// itself in the real project before writing anything. Content is capped so a
+// handful of large files cannot blow the model's context.
+export function readFiles(projectDir, relPaths, maxBytesEach = 8000, totalBudget = 40000) {
+  const out = [];
+  let budget = totalBudget;
+  for (const rel of relPaths.slice(0, 12)) {
+    if (budget <= 0) break;
+    try {
+      const content = readFileSync(safeJoin(projectDir, rel), 'utf8').slice(0, Math.min(maxBytesEach, budget));
+      budget -= content.length;
+      out.push({ path: rel, content });
+    } catch {
+      out.push({ path: rel, error: 'unreadable or missing' });
+    }
+  }
+  return out;
+}
+
 export function readFile(projectDir, rel) {
   const abs = safeJoin(projectDir, rel);
   const content = readFileSync(abs, 'utf8');

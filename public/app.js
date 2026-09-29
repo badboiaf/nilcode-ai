@@ -110,6 +110,7 @@ function enterApp() {
   refreshGithub();
   refreshProviders();
   refreshAiStatus();
+  loadModels();
 }
 
 // =============================================================== PROJECTS ==
@@ -237,12 +238,20 @@ async function send() {
     ? '\n\n' + uploaded.map((a) => `[Attached: ${a.name} (${a.kind})]`).join('\n')
     : '';
 
-  // First message with no project: create one from the request itself so the
-  // user can simply describe what they want and go.
+  // First message with no project: ask the server for a short semantic title
+  // derived from the assignment (never a truncated prompt), create the
+  // project, and send the full request as its intent.
   if (!project) {
-    const name = (text || 'Untitled project').replace(/\s+/g, ' ').slice(0, 40);
+    let name = '';
     try {
-      const data = await api('/projects', { method: 'POST', body: { name } });
+      const t = await api('/projects/auto', { method: 'POST', body: { prompt: text } });
+      name = t.name;
+    } catch { /* heuristic fallback happens server-side anyway */ }
+    try {
+      const data = await api('/projects', {
+        method: 'POST',
+        body: { name: name || 'New Project', description: text.slice(0, 500) },
+      });
       await loadProjects();
       await selectProject(data.project);
     } catch (err) {
@@ -262,15 +271,13 @@ async function send() {
   bubble('user', text || '(files only)');
   setStatus('Working…');
 
-  const stepsBox = $('steps');
-  stepsBox.innerHTML = '';
-  stepsBox.classList.remove('hidden');
+  resetActivity();
 
   try {
     const res = await fetch(`api/projects/${project.id}/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, model: currentModel || undefined }),
     });
     if (!res.ok || !res.body) {
       const data = await res.json().catch(() => ({}));
@@ -303,35 +310,165 @@ async function send() {
   }
 }
 
+// =========================================== ACTIVITY (real agent events) ==
+let activitySteps = [];
+let runningIdx = -1;
+let streamBubble = null;
+let streamBuf = '';
+let streamWinner = false; // deltas only count from the provider that won
+let filesCardEl = null;
+
+function resetActivity() {
+  activitySteps = [];
+  runningIdx = -1;
+  streamBubble = null;
+  streamBuf = '';
+  streamWinner = false;
+  filesCardEl = null;
+  const panel = $('activity');
+  panel.classList.remove('hidden', 'completed');
+  $('activityTitle').textContent = 'Working…';
+  $('activitySummary').classList.add('hidden');
+  renderActivity();
+}
+
+function activityStart(title) {
+  // Identical consecutive stages (round-to-round "Working…") stay one entry.
+  const last = activitySteps[activitySteps.length - 1];
+  if (last && last.title === title && last.state === 'running') return;
+  if (runningIdx >= 0 && activitySteps[runningIdx]) activitySteps[runningIdx].state = 'done';
+  activitySteps.push({ title, state: 'running' });
+  runningIdx = activitySteps.length - 1;
+  renderActivity();
+}
+
+function activityFinishCurrent() {
+  if (runningIdx >= 0 && activitySteps[runningIdx]) activitySteps[runningIdx].state = 'done';
+  runningIdx = -1;
+  renderActivity();
+}
+
+function renderActivity() {
+  const list = $('activityList');
+  list.innerHTML = '';
+  for (const s of activitySteps) {
+    const el = document.createElement('div');
+    el.className = `act ${s.state}`;
+    const ico = document.createElement('span');
+    ico.className = 'ico';
+    ico.textContent = s.state === 'done' ? '✓' : s.state === 'error' ? '✕' : '●';
+    const t = document.createElement('span');
+    t.textContent = s.title;
+    el.appendChild(ico);
+    el.appendChild(t);
+    if (s.note) {
+      const n = document.createElement('span');
+      n.className = 'note';
+      n.textContent = ` — ${s.note}`;
+      el.appendChild(n);
+    }
+    list.appendChild(el);
+  }
+}
+
+// One expandable card per run, updated live: “3 files created · 1 file updated”.
+function upsertFilesCard(ev) {
+  const created = ev.created || [];
+  const updated = ev.updated || [];
+  if (!created.length && !updated.length) return;
+  $('chatEmpty').classList.add('hidden');
+  if (!filesCardEl) {
+    filesCardEl = document.createElement('details');
+    filesCardEl.className = 'files-card';
+    const summary = document.createElement('summary');
+    const list = document.createElement('ul');
+    list.className = 'files-list';
+    filesCardEl.appendChild(summary);
+    filesCardEl.appendChild(list);
+    $('chat').appendChild(filesCardEl);
+    $('chatScroll').scrollTop = $('chatScroll').scrollHeight;
+  }
+  const parts = [];
+  if (created.length) parts.push(`${created.length} file${created.length === 1 ? '' : 's'} created`);
+  if (updated.length) parts.push(`${updated.length} file${updated.length === 1 ? '' : 's'} updated`);
+  filesCardEl.querySelector('summary').textContent = parts.join(' · ');
+  const list = filesCardEl.querySelector('.files-list');
+  list.innerHTML = '';
+  for (const p of [...created.map((p) => `＋ ${p}`), ...updated.map((p) => `↻ ${p}`)]) {
+    const li = document.createElement('li');
+    li.textContent = p;
+    list.appendChild(li);
+  }
+}
+
+// Streams arrive as the agent's final JSON envelope. Unwrap "summary"/"reply"
+// incrementally so the user watches the real answer form; tool-call rounds are
+// never shown as raw JSON.
+function streamUnwrap() {
+  const m = streamBuf.match(/"(?:summary|reply)"\s*:\s*"((?:[^"\\]|\\.)*)/);
+  if (!m) return null;
+  let text = m[1];
+  try { text = JSON.parse(`"${text}"`); } catch { /* still escaping — show as-is */ }
+  return text;
+}
+
 function handleEvent(ev) {
-  const stepsBox = $('steps');
   switch (ev.type) {
     case 'status':
       setStatus(ev.text);
       break;
     case 'plan':
-      stepsBox.innerHTML = '';
-      ev.steps.forEach((title, i) => {
-        const el = document.createElement('div');
-        el.className = 'step pending';
-        el.dataset.i = i;
-        el.innerHTML = '<span class="ico">○</span><span class="title"></span><span class="result"></span>';
-        el.querySelector('.title').textContent = `${i + 1}. ${title}`;
-        stepsBox.appendChild(el);
-      });
+      $('activityTitle').textContent = 'Building…';
       break;
-    case 'step': {
-      const el = stepsBox.querySelector(`.step[data-i="${ev.index - 1}"]`);
-      if (el) {
-        el.className = `step ${ev.state}`;
-        el.querySelector('.ico').textContent = ev.state === 'done' ? '✓' : ev.state === 'error' ? '✕' : '◐';
-        if (ev.result) el.querySelector('.result').textContent = ev.result;
-        if (ev.error) el.querySelector('.result').textContent = ev.error;
+    case 'activity':
+      activityStart(ev.text);
+      break;
+    case 'files':
+      upsertFilesCard(ev);
+      break;
+    case 'stream_start':
+      streamWinner = true;
+      if (!streamBubble) {
+        streamBubble = bubble('assistant', '');
+        streamBubble.classList.add('streaming');
+      }
+      break;
+    case 'stream_reset':
+      // A new round started: discard any partial/unreliable stream text.
+      streamBuf = '';
+      streamWinner = false;
+      if (streamBubble) {
+        streamBubble.textContent = '';
+        streamBubble.classList.remove('streaming');
+        streamBubble.parentElement?.remove();
+        streamBubble = null;
+      }
+      break;
+    case 'token': {
+      if (!streamWinner) break; // ignore deltas from non-winning attempts
+      streamBuf += ev.text || '';
+      const unwrapped = streamUnwrap();
+      if (streamBubble && unwrapped !== null) {
+        streamBubble.textContent = unwrapped;
+        $('chatScroll').scrollTop = $('chatScroll').scrollHeight;
       }
       break;
     }
     case 'assistant':
-      bubble('assistant', ev.content, ev.provider);
+      if (streamBubble) {
+        streamBubble.textContent = ev.content;
+        streamBubble.classList.remove('streaming');
+        const meta = streamBubble.parentElement.querySelector('.msg-meta');
+        if (!meta && ev.provider) {
+          const m = document.createElement('div');
+          m.className = 'msg-meta';
+          m.textContent = ev.provider;
+          streamBubble.parentElement.appendChild(m);
+        }
+        streamBubble = null;
+      } else {
+        bubble('assistant', ev.content, ev.provider);
+      }
       break;
     case 'error': {
       const b = bubble('assistant', ev.message);
@@ -347,16 +484,66 @@ function handleEvent(ev) {
       }
       break;
     }
+    case 'approval_request': {
+      // The agent is blocked on a consequential connector action until the
+      // user decides. Only this user can resolve it (server-side check).
+      const cardEl = document.createElement('div');
+      cardEl.className = 'msg assistant approval-card';
+      const rowEl = document.createElement('div');
+      rowEl.className = 'bubble';
+      const t = document.createElement('div');
+      t.className = 'approval-title';
+      t.textContent = ev.title || 'Allow this action?';
+      rowEl.appendChild(t);
+      if (ev.detail) {
+        const d = document.createElement('div');
+        d.className = 'approval-detail';
+        d.textContent = ev.detail;
+        rowEl.appendChild(d);
+      }
+      const btns = document.createElement('div');
+      btns.className = 'approval-buttons';
+      const ok = document.createElement('button');
+      ok.className = 'btn btn-primary';
+      ok.textContent = 'Continue';
+      const no = document.createElement('button');
+      no.className = 'btn btn-quiet';
+      no.textContent = 'Cancel';
+      const decide = async (decision) => {
+        ok.disabled = no.disabled = true;
+        try { await api(`/connectors/approvals/${encodeURIComponent(ev.id)}`, { method: 'POST', body: { decision } }); } catch { /* timed out server-side */ }
+        cardEl.remove();
+        setStatus(decision === 'approve' ? 'Approved — continuing…' : 'Cancelled.');
+      };
+      ok.addEventListener('click', () => decide('approve'));
+      no.addEventListener('click', () => decide('decline'));
+      btns.append(ok, no);
+      rowEl.appendChild(btns);
+      cardEl.appendChild(rowEl);
+      $('chat').appendChild(cardEl);
+      $('chatScroll').scrollTop = $('chatScroll').scrollHeight;
+      setStatus('Waiting for your approval…');
+      break;
+    }
     case 'done':
-      stepsBox.classList.add('hidden');
+      activityFinishCurrent();
+      $('activity').classList.add('completed');
+      $('activityTitle').textContent = activitySteps.some((s) => s.state === 'error') ? 'Completed with issues' : 'Completed';
+      setLoader(false);
       break;
   }
 }
 
+// The `< >` mark spins whenever NILCODE is genuinely processing.
+function setLoader(on) {
+  const l = $('ncLoader');
+  if (l) l.classList.toggle('hidden', !on);
+}
+
 function setStatus(text, cls = '') {
-  const el = $('statusPill');
-  el.textContent = text;
-  el.className = `status ${cls}`;
+  $('statusText').textContent = text;
+  $('statusPill').className = `status ${cls}`;
+  setLoader(text !== 'Ready' && text !== '');
 }
 
 // Re-sends the last user message when an AI failure was transient.
@@ -575,6 +762,39 @@ async function doPublish() {
   }
 }
 
+// ================================================================== MODELS ==
+let models = [];
+let currentModel = localStorage.getItem('nc_model') || '';
+
+async function loadModels() {
+  try {
+    const data = await api('/ai/models');
+    models = data.models || [];
+    renderModelSelect();
+  } catch { /* status endpoint still works; selector stays hidden */ }
+}
+
+function renderModelSelect() {
+  const sel = $('modelSelect');
+  if (!models.length) { sel.classList.add('hidden'); return; }
+  sel.classList.remove('hidden');
+  sel.innerHTML = '';
+  for (const m of models) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.label;
+    sel.appendChild(opt);
+  }
+  if (models.some((m) => m.id === currentModel)) sel.value = currentModel;
+  else { sel.value = models[0].id; currentModel = models[0].id; }
+}
+
+$('modelSelect').addEventListener('change', (e) => {
+  currentModel = e.target.value;
+  if (currentModel) localStorage.setItem('nc_model', currentModel);
+  else localStorage.removeItem('nc_model');
+});
+
 // ================================================================ SETTINGS ==
 async function refreshAiStatus() {
   try {
@@ -663,6 +883,292 @@ async function commitNow() {
   }
 }
 
+// ============================================================= CONNECTORS ==
+// Catalog + per-user connections. The server never returns secrets: the
+// catalog endpoint is metadata-only (safeMeta), so the UI can show status but
+// never credentials. OAuth flows open in a popup; the callback page closes
+// itself and we refresh the catalog when it disappears.
+let connCatalog = [];
+let connFilter = '';
+const connMeta = {}; // id -> catalog entry (statuses, scopes, pricing)
+
+const CATEGORY_LABELS = {
+  database: 'Database', hosting: 'Hosting', auth: 'Authentication', messaging: 'Messaging',
+  payments: 'Payments', api: 'API & Backend', vcs: 'Version control', monitoring: 'Monitoring',
+  email: 'Email', ai: 'AI', cms: 'CMS', media: 'Media', productivity: 'Productivity',
+};
+
+function monogram(name) {
+  return name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+}
+
+async function openConnectors() {
+  $('connectorsModal').showModal();
+  connSearchRender();
+  await loadConnectors();
+}
+
+async function loadConnectors() {
+  const grid = $('connGrid');
+  grid.innerHTML = '<div class="conn-hint muted">Loading connectors…</div>';
+  try {
+    const data = await api('/connectors/catalog');
+    connCatalog = data.connectors || [];
+    for (const c of connCatalog) connMeta[c.id] = c;
+  } catch (err) {
+    grid.innerHTML = `<div class="conn-hint muted">Could not load connectors: ${escapeHtmlErr(err.message)}</div>`;
+    return;
+  }
+  renderConnectorCards();
+}
+
+function escapeHtmlErr(s) {
+  return String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+function renderConnectorCards() {
+  const grid = $('connGrid');
+  grid.innerHTML = '';
+  const q = connFilter.trim().toLowerCase();
+  const items = connCatalog.filter((c) =>
+    !q || c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q) ||
+    (CATEGORY_LABELS[c.category] || c.category).toLowerCase().includes(q));
+  if (!items.length) {
+    grid.innerHTML = '<div class="conn-hint muted">No connectors match your search.</div>';
+    return;
+  }
+  for (const c of items) grid.appendChild(connectorCard(c));
+}
+
+function connectorCard(c) {
+  const card = document.createElement('div');
+  card.className = 'conn-card';
+
+  const head = document.createElement('div');
+  head.className = 'conn-head';
+  const logo = document.createElement('div');
+  logo.className = 'conn-logo';
+  logo.textContent = monogram(c.name);
+  const nameWrap = document.createElement('div');
+  nameWrap.className = 'conn-name-wrap';
+  const nm = document.createElement('div');
+  nm.className = 'conn-name';
+  nm.textContent = c.name;
+  const cat = document.createElement('div');
+  cat.className = 'conn-cat';
+  cat.textContent = CATEGORY_LABELS[c.category] || c.category;
+  nameWrap.append(nm, cat);
+  const status = document.createElement('span');
+  status.className = c.connection ? 'conn-status conn-status-on' : 'conn-status';
+  status.textContent = c.connection ? 'Connected' : (c.implemented ? 'Not connected' : 'Coming soon');
+  head.append(logo, nameWrap, status);
+
+  const desc = document.createElement('p');
+  desc.className = 'conn-desc';
+  desc.textContent = c.description;
+
+  const actions = document.createElement('div');
+  actions.className = 'conn-actions';
+
+  if (c.connection) {
+    const manage = document.createElement('button');
+    manage.className = 'btn btn-quiet';
+    manage.textContent = 'Manage';
+    manage.addEventListener('click', () => manageConnector(c));
+    const disconnect = document.createElement('button');
+    disconnect.className = 'btn btn-quiet conn-disconnect';
+    disconnect.textContent = 'Disconnect';
+    disconnect.addEventListener('click', async () => {
+      if (!confirm(`Disconnect ${c.name}? NILCODE will lose access until you connect it again.`)) return;
+      await api(`/connectors/${c.id}/disconnect`, { method: 'POST' });
+      await loadConnectors();
+    });
+    actions.append(manage, disconnect);
+  } else if (c.implemented) {
+    const connect = document.createElement('button');
+    connect.className = 'btn btn-primary';
+    connect.textContent = 'Connect';
+    connect.addEventListener('click', () => connectConnector(c));
+    actions.appendChild(connect);
+  } else {
+    const soon = document.createElement('span');
+    soon.className = 'conn-soon';
+    soon.textContent = 'In development';
+    actions.appendChild(soon);
+  }
+
+  card.append(head, desc, actions);
+  if (c.pricing) {
+    const price = document.createElement('p');
+    price.className = 'conn-pricing';
+    price.textContent = c.pricing;
+    card.appendChild(price);
+  }
+  return card;
+}
+
+// Connect: OAuth connectors open the provider's authorize page in a popup;
+// API-key/PAT connectors show a small credential form.
+async function connectConnector(c) {
+  if (c.authType === 'oauth') {
+    setStatus(`Connecting to ${c.name}…`);
+    try {
+      const { url } = await api(`/connectors/${c.id}/oauth/start`, { method: 'POST' });
+      const w = window.open(url, 'nilcode-oauth', 'width=520,height=680');
+      if (!w) { setStatus(`${c.name}: popup blocked — allow popups and retry.`, 'status-err'); return; }
+      // The callback page closes itself; poll until the popup is gone, then
+      // refresh the catalog to pick up the new connection.
+      const timer = setInterval(() => {
+        if (w.closed) { clearInterval(timer); loadConnectors().then(() => setStatus('Ready')); }
+      }, 500);
+    } catch (err) {
+      setStatus(err.message, 'status-err');
+    }
+    return;
+  }
+  if (c.authType === 'api_key') {
+    showTokenForm(c);
+  }
+}
+
+function showTokenForm(c) {
+  const grid = $('connGrid');
+  const form = document.createElement('div');
+  form.className = 'conn-token-form';
+  const title = document.createElement('h3');
+  title.className = 'conn-token-title';
+  title.textContent = `Connect ${c.name}`;
+  const note = document.createElement('p');
+  note.className = 'conn-token-note';
+  note.textContent = c.note || 'The token is stored encrypted on the server and never shown again.';
+  form.append(title, note);
+  const inputs = [];
+  for (const f of (c.fields || [{ name: 'token', label: 'Personal access token', secret: true }])) {
+    const label = document.createElement('label');
+    label.className = 'field';
+    const span = document.createElement('span');
+    span.className = 'field-label';
+    span.textContent = f.label;
+    const input = document.createElement('input');
+    input.type = f.secret ? 'password' : 'text';
+    input.className = 'input';
+    input.autocomplete = 'off';
+    label.append(span, input);
+    form.appendChild(label);
+    inputs.push([f.name, input]);
+  }
+  const row = document.createElement('div');
+  row.className = 'modal-actions';
+  const cancel = document.createElement('button');
+  cancel.className = 'btn btn-quiet';
+  cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', () => renderConnectorCards());
+  const save = document.createElement('button');
+  save.className = 'btn btn-primary';
+  save.textContent = 'Save and connect';
+  save.addEventListener('click', async () => {
+    const body = {};
+    for (const [name, input] of inputs) body[name] = input.value.trim();
+    if (!Object.values(body).some(Boolean)) return;
+    try {
+      await api(`/connectors/${c.id}/token`, { method: 'POST', body });
+      await loadConnectors();
+      setStatus(`${c.name} connected.`);
+    } catch (err) {
+      setStatus(err.message, 'status-err');
+    }
+  });
+  row.append(cancel, save);
+  form.appendChild(row);
+  grid.innerHTML = '';
+  grid.appendChild(form);
+}
+
+// Manage: show real resources on the connected service and, when a project
+// is open, offer to attach one to THIS project.
+async function manageConnector(c) {
+  const grid = $('connGrid');
+  grid.innerHTML = `<div class="conn-hint muted">Loading your ${escapeHtmlErr(c.name)} resources…</div>`;
+  let resources = {};
+  try {
+    const data = await api(`/connectors/${c.id}/manage`);
+    resources = data.resources || {};
+  } catch (err) {
+    grid.innerHTML = `<div class="conn-hint muted">${escapeHtmlErr(err.message)}</div>`;
+    const back = document.createElement('button');
+    back.className = 'btn btn-quiet';
+    back.textContent = 'Back';
+    back.addEventListener('click', () => renderConnectorCards());
+    grid.appendChild(back);
+    return;
+  }
+  renderConnectorCards();
+  const panel = document.createElement('div');
+  panel.className = 'conn-manage';
+  const title = document.createElement('h3');
+  title.className = 'conn-token-title';
+  title.textContent = `Manage ${c.name}`;
+  panel.appendChild(title);
+  const groups = ['projects', 'sites', 'guilds', 'repos'];
+  let any = false;
+  for (const g of groups) {
+    const list = resources[g];
+    if (!Array.isArray(list) || !list.length) continue;
+    any = true;
+    const label = document.createElement('div');
+    label.className = 'conn-group-label';
+    label.textContent = g[0].toUpperCase() + g.slice(1);
+    panel.appendChild(label);
+    for (const r of list) {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'conn-resource';
+      const nm = document.createElement('span');
+      nm.className = 'conn-resource-name';
+      nm.textContent = r.name || r.full_name || r.id;
+      rowEl.appendChild(nm);
+      if (r.region || r.status) {
+        const meta = document.createElement('span');
+        meta.className = 'conn-resource-meta';
+        meta.textContent = [r.region, r.status].filter(Boolean).join(' · ');
+        rowEl.appendChild(meta);
+      }
+      if (project && g !== 'repos') {
+        const attach = document.createElement('button');
+        attach.className = 'btn btn-quiet';
+        attach.textContent = 'Connect to this project';
+        attach.addEventListener('click', async () => {
+          const metaBody = g === 'projects' ? { ref: r.id, name: r.name, apiUrl: r.apiUrl }
+            : g === 'sites' ? { siteId: r.id, siteName: r.name }
+            : { guildId: r.id, guildName: r.name };
+          try {
+            const out = await api(`/projects/${project.id}/connectors/${c.id}`, { method: 'POST', body: metaBody });
+            attach.textContent = 'Attached ✓';
+            attach.disabled = true;
+            setStatus(`${c.name} attached to project.${out.envWritten?.length ? ' Environment variables written.' : ''}`);
+          } catch (err) {
+            setStatus(err.message, 'status-err');
+          }
+        });
+        rowEl.appendChild(attach);
+      }
+      panel.appendChild(rowEl);
+    }
+  }
+  if (!any) {
+    const empty = document.createElement('p');
+    empty.className = 'hint';
+    empty.textContent = 'No resources found on this account.';
+    panel.appendChild(empty);
+  }
+  const back = document.createElement('button');
+  back.className = 'btn btn-quiet';
+  back.textContent = 'Back';
+  back.addEventListener('click', () => renderConnectorCards());
+  panel.appendChild(back);
+  grid.innerHTML = '';
+  grid.appendChild(panel);
+}
+
 // ================================================================== WIRING ==
 function wire() {
   $('newProjectBtn').addEventListener('click', () => $('newProjectModal').showModal());
@@ -694,6 +1200,13 @@ function wire() {
   $('pubCancel').addEventListener('click', () => $('publishModal').close());
 
   $('settingsBtn').addEventListener('click', openSettings);
+  $('connectorsBtn').addEventListener('click', openConnectors);
+  $('connClose').addEventListener('click', () => $('connectorsModal').close());
+  $('connSearch').addEventListener('input', (e) => {
+    connFilter = e.target.value;
+    // Only re-render the card list; never touch an open token/manage panel.
+    if (!$('.conn-token-form') && !$('.conn-manage')) renderConnectorCards();
+  });
   $('pairGen').addEventListener('click', async () => {
     try {
       const d = await api('/desktop/pair-code', { method: 'POST' });

@@ -8,6 +8,7 @@ import * as auth from './auth.js';
 import * as projects from './projects.js';
 import { ProviderRegistry } from './providers/registry.js';
 import { runAgent, loadConversation } from './agent/engine.js';
+import { heuristicProjectTitle, cleanProjectTitle } from './titles.js';
 import { aiStatus } from './providers/registry.js';
 import { authenticateWithGoogle, googleStatus } from './auth/google.js';
 import { checkUsage, usageState } from './ai-usage.js';
@@ -22,6 +23,14 @@ import { startOllamaWatcher } from './providers/ollama-detect.js';
 import Busboy from 'busboy';
 import { MAX_FILE_BYTES, ingestUpload, listAttachments, getAttachment, pinAttachment, deleteAttachment, publicMeta } from './attachments/attachments.js';
 import { selectAttachments, buildAttachmentContext, imageToDataUrl } from './attachments/context.js';
+import { CATALOG, getCatalogEntry } from './connectors/catalog.js';
+import { listConnections, getConnection, setSecrets, removeConnection, safeMeta, getSecret } from './connectors/store.js';
+import * as oauth from './connectors/oauth.js';
+import { resolveApproval, attachToProject, detachFromProject, envVarsFor, upsertEnvVars } from './connectors/connector-bridge.js';
+
+function escapeHtml(s) {
+  return String(s).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -325,9 +334,200 @@ api.post('/desktop/pair-code/redeem', (req, res) => {
   }
 });
 
-// ----------------------------------------------------------------- AI status --
+// ------------------------------------------------------------- connectors --
+// Catalog + per-user connections. Secrets stay server-side and encrypted;
+// every payload here is metadata-only by construction (safeMeta).
+api.get('/connectors/catalog', requireAuth, (req, res) => {
+  const conns = new Map(listConnections(req.user.id).map((c) => [c.connectorId, c]));
+  res.json({
+    connectors: CATALOG.map((c) => ({
+      id: c.id,
+      name: c.name,
+      category: c.category,
+      description: c.description,
+      implemented: !!c.implemented,
+      authType: c.auth?.type || null,
+      capabilities: c.capabilities || [],
+      pricing: c.pricing || null,
+      note: c.note || null,
+      scopes: c.auth?.scopeDescriptions
+        ? Object.entries(c.auth.scopeDescriptions).map(([scope, description]) => ({ scope, description }))
+        : [],
+      connection: conns.has(c.id) ? safeMeta(conns.get(c.id)) : null,
+    })),
+  });
+});
+
+// Start an OAuth flow: returns the provider's authorize URL for a popup.
+api.post('/connectors/:id/oauth/start', requireAuth, (req, res) => {
+  const entry = getCatalogEntry(req.params.id);
+  if (!entry || !entry.implemented || entry.auth?.type !== 'oauth') {
+    return res.status(404).json({ error: 'Unknown connector.' });
+  }
+  if (!oauth.clientIdFor(entry)) {
+    return res.status(400).json({
+      error: `${entry.name} sign-in is not configured on this server yet.`,
+    });
+  }
+  const state = oauth.createState(entry.id, req.user.id);
+  const pkce = entry.auth.pkce ? oauth.createPkce() : null;
+  if (pkce) setSecrets(req.user.id, entry.id, { pkceVerifier: pkce.verifier });
+  const redirect = oauth.redirectUri(req);
+  res.json({ url: oauth.authorizeUrl(entry, { state, codeChallenge: pkce?.challenge, redirect }) });
+});
+
+// Provider callback: exchange the code, encrypt and store tokens. The page
+// shown to the user contains nothing but success/failure copy.
+api.get('/connectors/oauth/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    if (req.query.error) {
+      return res.status(400).send(`<!doctype html><title>NILCODE AI</title><p>Authorization failed: ${escapeHtml(req.query.error)}</p>`);
+    }
+    const st = oauth.verifyState(state);
+    if (!st) return res.status(400).send('<!doctype html><title>NILCODE AI</title><p>This authorization link is invalid or expired. Start again from NILCODE.</p>');
+    const entry = getCatalogEntry(st.connectorId);
+    if (!entry) return res.status(400).send('<!doctype html><title>NILCODE AI</title><p>Unknown connector.</p>');
+    const redirect = oauth.redirectUri(req);
+    const codeVerifier = entry.auth.pkce ? getSecret(st.userId, entry.id, 'pkceVerifier') : null;
+    const tokens = await oauth.exchangeCode(entry, { code, codeVerifier, redirect });
+    const secrets = {};
+    if (tokens.access_token) secrets.accessToken = tokens.access_token;
+    if (tokens.refresh_token) secrets.refreshToken = tokens.refresh_token;
+    if (tokens.webhook?.url) secrets.webhookUrl = tokens.webhook.url; // discord webhook.incoming
+    setSecrets(st.userId, entry.id, secrets);
+    res.send(
+      `<!doctype html><html><head><title>NILCODE AI</title><style>body{font-family:-apple-system,'Segoe UI',sans-serif;background:#fff;color:#1d1d1f;display:grid;place-items:center;height:100vh;margin:0}main{text-align:center}h1{font-size:20px}</style></head><body><main><h1>✓ ${escapeHtml(entry.name)} connected</h1><p>You can close this window and return to NILCODE AI.</p></main><script>setTimeout(function(){window.close()},1200)</script></body></html>`
+    );
+  } catch (err) {
+    res.status(400).send(`<!doctype html><title>NILCODE AI</title><p>Connection failed: ${escapeHtml(err.message)}</p>`);
+  }
+});
+
+// API-key / PAT connectors.
+api.post('/connectors/:id/token', requireAuth, (req, res) => {
+  const entry = getCatalogEntry(req.params.id);
+  if (!entry || !entry.implemented || entry.auth?.type !== 'api_key') {
+    return res.status(404).json({ error: 'Unknown connector.' });
+  }
+  const fields = entry.auth.fields || [];
+  const secrets = {};
+  for (const f of fields) {
+    const v = req.body?.[f.name];
+    if (typeof v === 'string' && v.trim()) secrets[f.name] = v.trim();
+  }
+  if (!Object.keys(secrets).length) return res.status(400).json({ error: 'No credentials provided.' });
+  setSecrets(req.user.id, entry.id, secrets);
+  res.json({ ok: true, connection: safeMeta(getConnection(req.user.id, entry.id)) });
+});
+
+api.post('/connectors/:id/disconnect', requireAuth, (req, res) => {
+  if (!getCatalogEntry(req.params.id)) return res.status(404).json({ error: 'Unknown connector.' });
+  removeConnection(req.user.id, req.params.id);
+  res.json({ ok: true });
+});
+
+// Manage: list the user's real resources on a connected service (projects,
+// sites, servers…). Used by the Connect-to-project flow and the Manage UI.
+api.get('/connectors/:id/manage', requireAuth, async (req, res) => {
+  const entry = getCatalogEntry(req.params.id);
+  if (!entry || !entry.implemented) return res.status(404).json({ error: 'Unknown connector.' });
+  if (!getConnection(req.user.id, entry.id)) return res.status(400).json({ error: 'Not connected.' });
+  try {
+    switch (entry.id) {
+      case 'supabase': {
+        const sb = await import('./connectors/capabilities/supabase.js');
+        const [projects, organizations] = await Promise.all([sb.listProjects(req.user.id), sb.listOrganizations(req.user.id)]);
+        return res.json({ resources: { projects, organizations } });
+      }
+      case 'netlify': {
+        const n = await import('./connectors/capabilities/netlify.js');
+        return res.json({ resources: { sites: await n.listSites(req.user.id) } });
+      }
+      case 'discord': {
+        const d = await import('./connectors/capabilities/discord.js');
+        return res.json({ resources: { guilds: await d.listGuilds(req.user.id) } });
+      }
+      case 'github': {
+        const g = await import('./connectors/capabilities/github.js');
+        return res.json({ resources: { repos: await g.listRepos(req.user.id) } });
+      }
+      default:
+        return res.json({ resources: {} });
+    }
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Human approval of a consequential connector action requested by the agent.
+api.post('/connectors/approvals/:id', requireAuth, (req, res) => {
+  const ok = resolveApproval(req.params.id, req.body?.decision === 'approve' ? 'approve' : 'decline', req.user.id);
+  if (!ok) return res.status(404).json({ error: 'This approval request is no longer active.' });
+  res.json({ ok: true });
+});
+
+// Attach a connected service to a specific NILCODE project (project-level
+// connections) and write its safe env vars into the project .env.
+api.post('/projects/:id/connectors/:connectorId', requireAuth, (req, res) => {
+  const p = projects.getProject(req.user.id, req.params.id);
+  if (!p) return res.status(404).json({ error: 'Project not found.' });
+  const entry = getCatalogEntry(req.params.connectorId);
+  if (!entry || !entry.implemented) return res.status(404).json({ error: 'Unknown connector.' });
+  if (!getConnection(req.user.id, entry.id)) return res.status(400).json({ error: `Connect ${entry.name} first.` });
+  const b = req.body || {};
+  const meta = {};
+  for (const k of ['ref', 'name', 'apiUrl', 'siteId', 'siteName', 'guildId', 'guildName', 'channelId']) {
+    if (typeof b[k] === 'string' && b[k].trim()) meta[k] = b[k].trim().slice(0, 200);
+  }
+  attachToProject(p.path, entry.id, meta);
+  const vars = envVarsFor(entry.id, meta);
+  const written = Object.keys(vars).length ? upsertEnvVars(p.path, vars) : [];
+  res.json({ ok: true, attachment: meta, envWritten: written });
+});
+
+api.delete('/projects/:id/connectors/:connectorId', requireAuth, (req, res) => {
+  const p = projects.getProject(req.user.id, req.params.id);
+  if (!p) return res.status(404).json({ error: 'Project not found.' });
+  detachFromProject(p.path, req.params.connectorId);
+  res.json({ ok: true });
+});
+
+// ------------------------------------------------------------- AI status --
 api.get('/ai/status', requireAuth, async (req, res) => {
   res.json({ ...(await aiStatus(req.user.id)), usage: usageState(req.user.id) });
+});
+
+// Models for the chat selector. Only entries this server can actually route
+// to — never invented in the UI.
+api.get('/ai/models', requireAuth, (req, res) => {
+  res.json({ models: new ProviderRegistry(req.user.id).listModels() });
+});
+
+// Semantic auto-title: when a user sends a coding request without creating a
+// project first, derive a short, human-readable project name from the
+// assignment (AI cleanup pass when a provider is reachable, deterministic
+// heuristic otherwise — never a truncated prompt).
+api.post('/projects/auto', requireAuth, async (req, res) => {
+  const prompt = String(req.body?.prompt || '').trim();
+  if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
+  const fallback = heuristicProjectTitle(prompt);
+  let name = fallback;
+  try {
+    const reg = new ProviderRegistry(req.user.id);
+    const out = await reg.chat(
+      'planner',
+      [
+        { role: 'system', content: 'You name software projects. Reply with the project name only — 2 to 4 words, Title Case, no quotes, no punctuation.' },
+        { role: 'user', content: prompt.slice(0, 500) },
+      ],
+      { maxTokens: 24, temperature: 0.2, timeoutMs: 12000 }
+    );
+    name = cleanProjectTitle(out.text) || fallback;
+  } catch {
+    // No provider reachable — the heuristic fallback IS the feature.
+  }
+  res.json({ name, source: name === fallback ? 'heuristic' : 'ai' });
 });
 
 // -------------------------------------------------------------- providers --
@@ -404,7 +604,8 @@ app.post('/api/projects/:id/chat', requireAuth, async (req, res) => {
     const index = listAttachments(req.user.id, { projectId: p.id });
     const selected = selectAttachments({ userId: req.user.id, projectId: p.id, prompt, index });
     const attachments = selected.length ? await buildAttachmentContext({ userId: req.user.id, selected }) : { text: '', images: [] };
-    await runAgent({ user: req.user, project: p, prompt, emit, attachments });
+    const preferredModel = typeof req.body?.model === 'string' && req.body.model.trim() ? req.body.model.trim() : undefined;
+    await runAgent({ user: req.user, project: p, prompt, emit, attachments, preferredModel });
   } catch (err) {
     emit({ type: 'error', message: err.message });
   }

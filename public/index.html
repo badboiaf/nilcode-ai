@@ -62,6 +62,7 @@
           <span id="userAvatar" class="avatar"></span>
           <span id="userBadge" class="account-name"></span>
         </div>
+        <button id="connectorsBtn" class="side-action">Connectors</button>
         <button id="settingsBtn" class="side-action">Settings</button>
         <button id="signOutBtn" class="side-action">Sign out</button>
       </div>
@@ -76,7 +77,8 @@
           <button id="publishBtn" class="btn btn-quiet">Publish</button>
           <button id="commitBtn" class="btn btn-quiet">Commit</button>
         </div>
-        <span id="statusPill" class="status">Ready</span>
+        <select id="modelSelect" class="model-select hidden" title="AI model" aria-label="AI model"></select>
+        <span id="statusPill" class="status"><span id="ncLoader" class="nc-loader hidden" aria-hidden="true"><span class="nc-l">&lt;</span><span class="nc-r">&gt;</span></span><span id="statusText">Ready</span></span>
         <span id="runPill" class="status status-ok hidden"></span>
       </header>
 
@@ -94,7 +96,14 @@
         <div id="chat" class="chat-list" aria-live="polite"></div>
       </section>
 
-      <div id="steps" class="steps hidden"></div>
+      <div id="activity" class="activity hidden">
+        <div class="activity-head">
+          <span class="nc-loader" aria-hidden="true"><span class="nc-l">&lt;</span><span class="nc-r">&gt;</span></span>
+          <span id="activityTitle">Working…</span>
+        </div>
+        <div id="activityList" class="activity-list"></div>
+        <div id="activitySummary" class="activity-summary hidden"></div>
+      </div>
 
       <footer class="composer">
         <div id="attachments" class="attachments hidden"></div>
@@ -129,6 +138,16 @@
   </div>
 
   <!-- ================= Dialogs ================= -->
+  <dialog id="connectorsModal" class="modal modal-wide">
+    <h2 class="modal-title">Connectors</h2>
+    <p class="hint">Connect external services, then tell NILCODE to use them — the agent calls the real APIs for you. Credentials are stored encrypted on this server and never shown again.</p>
+    <input id="connSearch" type="search" class="input" placeholder="Search integrations…" autocomplete="off">
+    <div id="connGrid" class="conn-grid"></div>
+    <div class="modal-actions">
+      <button id="connClose" class="btn btn-primary">Done</button>
+    </div>
+  </dialog>
+
   <dialog id="newProjectModal" class="modal">
     <h2 class="modal-title">Create project</h2>
     <label class="field">

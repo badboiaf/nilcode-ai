@@ -47,6 +47,21 @@ function openAiContentWithImages(text, images) {
   ];
 }
 
+// Shared HTTP-error mapping for OpenAI-compatible providers; throws AIError.
+function handleProviderHttpError(cred, status, body) {
+  const message = providerErrorMessage(cred, status, body);
+  if (status === 401 || status === 403) {
+    logAIError('auth failure', message);
+    throw new AIError('UNAVAILABLE', AI_ERRORS.UNAVAILABLE, message);
+  }
+  if (status === 429) throw new AIError('RATE_LIMITED', AI_ERRORS.RATE_LIMITED, message);
+  if (status >= 500) throw new AIError('UNAVAILABLE', AI_ERRORS.UNAVAILABLE, message);
+  logAIError('request rejected', message);
+  throw new AIError('INVALID_REQUEST', AI_ERRORS.INVALID_REQUEST, message);
+}
+
+// Streams OpenAI-style SSE chunks (delta.content) to onToken; without onToken
+// it returns the full response in one JSON call.
 async function chatOpenAICompatible(cred, messages, opts) {
   if (!cred.baseUrl) throw new Error(`${cred.label || 'Provider'} has no base URL configured.`);
   if (!cred.model) throw new Error(`${cred.label || 'Provider'} has no model configured.`);
@@ -59,20 +74,40 @@ async function chatOpenAICompatible(cred, messages, opts) {
         },
       ]
     : messages;
-  const res = await fetch(`${cred.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(cred.apiKey ? { authorization: `Bearer ${cred.apiKey}` } : {}),
-    },
-    body: JSON.stringify({
-      model: cred.model,
-      messages: outMessages,
-      temperature: opts.temperature ?? 0.2,
-      max_tokens: opts.maxTokens ?? 4096,
-    }),
-    signal: AbortSignal.timeout(opts.timeoutMs ?? (Number(config.ai?.timeoutMs) || 180000)),
-  });
+  const stream = typeof opts.onToken === 'function';
+  // Most hosted models are now reasoning models; without anti-reasoning
+  // params they can spend the ENTIRE token budget thinking before any visible
+  // content. Providers disagree on the parameter shape (OpenRouter wants
+  // reasoning:{effort}, Gemini/Groq take reasoning_effort and REJECT the
+  // object form), so we send both and strip them on a 400 rejection.
+  const reasoningParams = { reasoning: { effort: 'low' }, reasoning_effort: 'low' };
+  const baseBody = {
+    model: cred.model,
+    messages: outMessages,
+    temperature: opts.temperature ?? 0.2,
+    max_tokens: opts.maxTokens ?? 4096,
+    ...(stream ? { stream: true } : {}),
+  };
+  const doFetch = (body) =>
+    fetch(`${cred.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(cred.apiKey ? { authorization: `Bearer ${cred.apiKey}` } : {}),
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? (Number(config.ai?.timeoutMs) || 180000)),
+    });
+  let res = await doFetch({ ...baseBody, ...reasoningParams });
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '');
+    if (res.status === 400 && /reasoning/i.test(errBody)) {
+      // Provider rejected the anti-reasoning params — retry without them.
+      res = await doFetch(baseBody);
+    } else {
+      handleProviderHttpError(cred, res.status, errBody);
+    }
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     const message = providerErrorMessage(cred, res.status, body);
@@ -85,11 +120,75 @@ async function chatOpenAICompatible(cred, messages, opts) {
     logAIError('request rejected', message);
     throw new AIError('INVALID_REQUEST', AI_ERRORS.INVALID_REQUEST, message);
   }
-  const data = await res.json();
-  return {
-    text: data.choices?.[0]?.message?.content ?? '',
-    usage: data.usage || null,
-  };
+  if (!stream) {
+    const data = await res.json();
+    const msg = data.choices?.[0]?.message || {};
+    const reasoning = extractReasoningText(msg);
+    const text = msg.content || reasoning;
+    if (!text) throw new Error('empty response');
+    return {
+      text,
+      usage: data.usage || null,
+      reasoningOnly: !msg.content && !!reasoning,
+    };
+  }
+  // SSE decoding: split on blank lines, read `data:` payloads, accumulate deltas.
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  let text = '';
+  let reasoning = '';
+  let usage = null;
+  outer: while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (payload === '[DONE]') break outer;
+      try {
+        const chunk = JSON.parse(payload);
+        const delta = chunk.choices?.[0]?.delta || {};
+        if (delta.content) {
+          text += delta.content;
+          try { opts.onToken(delta.content); } catch { /* client gone */ }
+        }
+        // Reasoning models stream their thinking first; keep it as a fallback
+        // answer if the budget runs out before any visible content.
+        if (delta.reasoning) reasoning += delta.reasoning;
+        for (const d of delta.reasoning_details || []) {
+          if (typeof d?.text === 'string') reasoning += d.text;
+        }
+        if (chunk.usage) usage = chunk.usage;
+      } catch { /* keep-alive or partial line */ }
+    }
+  }
+  let reasoningOnly = false;
+  if (!text && reasoning) {
+    // Budget exhausted mid-thought: deliver the thinking trace rather than
+    // nothing — but do NOT relay it as tokens (it is not an answer; the chat()
+    // chain first tries the next provider for real content).
+    reasoningOnly = true;
+    text = reasoning;
+  }
+  if (!text) throw new Error('empty response');
+  return { text, usage, reasoningOnly };
+}
+
+// Reasoning-model fallback: some backends return the thinking trace in a
+// separate field with empty content when the token budget runs out.
+function extractReasoningText(msg) {
+  if (typeof msg.reasoning === 'string' && msg.reasoning.trim()) return msg.reasoning;
+  const details = msg.reasoning_details || [];
+  const joined = details
+    .map((d) => (typeof d?.text === 'string' ? d.text : ''))
+    .join('')
+    .trim();
+  return joined;
 }
 
 // Anthropic multimodal blocks: text + base64 image sources.
@@ -252,6 +351,24 @@ export class ProviderRegistry {
     }
   }
 
+  // Models the chat selector may offer. Only providers this server can route
+  // to right now appear here; the UI never invents entries.
+  listModels() {
+    const models = [];
+    const platform = this.platformProvider();
+    if (platform) models.push({ id: 'platform', label: platform.label, model: platform.model, free: true, platform: true });
+    models.push(
+      ...this.platformAutoProviders().map((p) => ({
+        id: p.id,
+        label: p.label,
+        model: p.model,
+        free: true,
+        platform: true,
+      }))
+    );
+    return models;
+  }
+
   available() {
     return this.data.providers.filter(
       (p) => p.enabled !== false && p.baseUrl && (p.apiKey || p.type === 'ollama')
@@ -274,17 +391,38 @@ export class ProviderRegistry {
     return candidates;
   }
 
+  // preferredModel: model id/name chosen in the UI. Reorders the resolved
+  // candidates so the matching provider is tried FIRST — the chain and every
+  // fallback stay intact if it fails.
   async chat(role, messages, opts = {}) {
-    const candidates = await this.resolve(role);
+    let candidates = await this.resolve(role);
     if (!candidates.length) {
       throw new AIError('NOT_CONFIGURED', AI_ERRORS.NOT_CONFIGURED, 'no providers configured');
     }
+    if (opts.preferredModel) {
+      const want = String(opts.preferredModel);
+      const match = (c) => c.model === want || c.id === want;
+      if (candidates.some(match)) {
+        const head = candidates.filter(match);
+        const tail = candidates.filter((c) => !match(c));
+        candidates = [...head, ...tail];
+      }
+    }
     const details = [];
+    const codes = [];
+    let lastResort = null;
     for (const cred of candidates) {
       try {
         const adapter = ADAPTERS[cred.type];
         const out = await adapter(cred, messages, opts);
         if (!out.text) throw new Error('empty response');
+        if (out.reasoningOnly) {
+          // A reasoning model that burned its budget: no real answer. Try the
+          // next provider; keep this as a last resort if everything else fails.
+          lastResort = { provider: { id: cred.id || null, label: cred.label, type: cred.type, model: cred.model, platform: !!cred.platform }, ...out };
+          details.push(`${cred.label}: reasoning-only response`);
+          continue;
+        }
         return {
           provider: {
             id: cred.id || null,
@@ -296,12 +434,21 @@ export class ProviderRegistry {
           ...out,
         };
       } catch (err) {
-        if (err instanceof AIError) throw err;
+        // A failed candidate must not break the chain: move on to the next
+        // provider (5xx outages and per-provider rejects are exactly why the
+        // fallback exists). The error code is decided AFTER every candidate
+        // has had its chance.
+        codes.push(err.code || null);
         details.push(`${cred.label}: ${err.message}`);
       }
     }
+    if (lastResort) {
+      logAIError(`only reasoning-only responses for role "${role}"`, details.join(' | '));
+      return lastResort;
+    }
     logAIError(`all providers failed for role "${role}"`, details.join(' | '));
-    throw new AIError('UNAVAILABLE', AI_ERRORS.UNAVAILABLE, details.join(' | '));
+    const code = codes.length && codes.every((c) => c === 'RATE_LIMITED') ? 'RATE_LIMITED' : 'UNAVAILABLE';
+    throw new AIError(code, AI_ERRORS[code], details.join(' | '));
   }
 }
 

@@ -57,6 +57,9 @@ loadDotEnv(ROOT);
 
 const config = {
   root: ROOT,
+  // How many tool rounds one chat request may take before the agent stops and
+  // reports honestly. Prevents runaway loops while allowing real multi-step work.
+  agentMaxRounds: Number(process.env.NULLCODE_AGENT_MAX_ROUNDS) || 24,
   port: Number(process.env.PORT) > 0 ? Number(process.env.PORT) : 4310,
   host: process.env.HOST || '127.0.0.1',
   // Optional mount path so the same server can live under a sub-path of a
@@ -131,6 +134,30 @@ config.platformAutoProviders = [
   },
 ].filter((p) => p.apiKey);
 if (process.env.NULLCODE_DISABLE_AUTO_AI === '1') config.platformAutoProviders = [];
+
+// Model catalog for the chat model selector. Derived ONLY from providers this
+// server can actually route to right now (operator platform provider first,
+// then the built-in chain) — the UI never invents models. Keys never appear
+// here; only labels and model names.
+config.aiModels = [];
+if (config.platform.baseUrl && config.platform.apiKey && config.platform.model) {
+  config.aiModels.push({
+    id: 'platform',
+    label: config.platform.label,
+    model: config.platform.model,
+    free: true,
+    platform: true,
+  });
+}
+config.aiModels.push(
+  ...config.platformAutoProviders.map((p) => ({
+    id: p.id,
+    label: p.label,
+    model: p.model,
+    free: true,
+    platform: true,
+  }))
+);
 
 // Optional free local path: if a local Ollama server is running, the server can
 // use it automatically (no API key, no user setup). Disable with NULLCODE_ALLOW_OLLAMA=0.

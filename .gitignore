@@ -9,6 +9,13 @@ nullcode.db-*
 *.log
 dist/
 build/
+# Desktop build resources are SOURCE (brand icons, mac entitlements) and must
+# be tracked; the generic build/ rule above would hide them from CI clones.
+!desktop/build/
+desktop/build/*
+!desktop/build/appicon.png
+!desktop/build/entitlements.mac.plist
+!desktop/build/installerIcon.ico
 coverage/
 *.exe
 *.blob

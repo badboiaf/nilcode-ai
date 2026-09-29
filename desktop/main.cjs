@@ -118,6 +118,9 @@ function createWindow() {
     title: 'NILCODE AI',
     show: false,
     backgroundColor: '#ffffff',
+    // Same brand mark as the website favicon (generated .ico/.icns live in
+    // build/); the packaged exe/dock icon comes from appicon.png at build time.
+    icon: join(__dirname, 'build', 'nilcode-ai.ico'),
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
@@ -127,14 +130,23 @@ function createWindow() {
   });
 
   // Keep the product in the app window. Google's sign-in popup must open
-  // here (GIS delivers the credential back through window.opener); genuine
-  // external sites still open in the user's default browser.
+  // here (GIS delivers the credential back through window.opener); connector
+  // OAuth providers (Supabase, Netlify, Discord) open here too so their
+  // callback reaches the local server. Genuine external sites still open in
+  // the user's default browser.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const OAuthHosts = [
+      'https://accounts.google.com',
+      'https://ssl.gstatic.com',
+      'https://www.google.com',
+      'https://api.supabase.com',
+      'https://supabase.com',
+      'https://app.netlify.com',
+      'https://discord.com',
+    ];
     if (
       url.startsWith(`http://127.0.0.1:${serverPort}`) ||
-      url.startsWith('https://accounts.google.com') ||
-      url.startsWith('https://ssl.gstatic.com') ||
-      url.startsWith('https://www.google.com')
+      OAuthHosts.some((h) => url.startsWith(h))
     ) {
       return { action: 'allow', overrideBrowserWindowOptions: { width: 480, height: 640, autoHideMenuBar: true } };
     }

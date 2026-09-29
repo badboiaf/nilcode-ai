@@ -80,11 +80,23 @@ function buildIcns(pngs) {
     console.log(`icon-${size}.png`);
   }
 
+  // Electron app icon (used by electron-builder for the Windows exe and the
+  // macOS .app) plus native-format icons: Windows .ico (window + installer),
+  // macOS .icns. All derive from the SAME brand mark as the website favicon.
+  const DESKTOP_BUILD = join(ROOT, 'desktop', 'build');
+  mkdirSync(DESKTOP_BUILD, { recursive: true });
+  const appIcon = pngs.find((p) => p.size === 512) || pngs[pngs.length - 1];
+  writeFileSync(join(DESKTOP_BUILD, 'appicon.png'), appIcon.data);
+  const ico = buildIco(pngs.filter((p) => [16, 32, 48, 64, 128, 256].includes(p.size)));
+  writeFileSync(join(DESKTOP_BUILD, 'nilcode-ai.ico'), ico);
+  writeFileSync(join(DESKTOP_BUILD, 'installerIcon.ico'), ico); // NSIS installer icon
+  writeFileSync(join(DESKTOP_BUILD, 'nilcode-ai.icns'), buildIcns(pngs));
+
   writeFileSync(
     join(OUT, 'nilcode-ai.ico'),
-    buildIco(pngs.filter((p) => [16, 32, 48, 64, 128, 256].includes(p.size)))
+    ico
   );
   writeFileSync(join(OUT, 'nilcode-ai.icns'), buildIcns(pngs));
-  console.log('icons written to build/icons');
+  console.log('icons written to build/icons and desktop/build');
   process.exit(0);
 })();

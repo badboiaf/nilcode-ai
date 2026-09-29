@@ -61,9 +61,36 @@ body {
 .link { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .status {
   font-size: 12px; color: var(--muted); white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
 }
 .status-ok { color: var(--ok); }
 .status-err { color: var(--err); }
+
+/* NILCODE `< >` loading mark — the brand's own spinner. */
+.nc-loader { font-family: var(--mono); font-weight: 700; font-size: 13px; display: inline-flex; gap: 2px; }
+.nc-loader .nc-l { animation: ncL 1.15s ease-in-out infinite; }
+.nc-loader .nc-r { animation: ncR 1.15s ease-in-out infinite; animation-delay: .14s; }
+@keyframes ncL {
+  0%, 100% { transform: translateX(0); opacity: .5; }
+  50% { transform: translateX(-2px); opacity: 1; }
+}
+@keyframes ncR {
+  0%, 100% { transform: translateX(0); opacity: .5; }
+  50% { transform: translateX(2px); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-loader .nc-l, .nc-loader .nc-r { animation: none; opacity: 1; }
+}
+
+/* Model selector (topbar) */
+.model-select {
+  font: inherit; font-size: 12px; color: var(--ink-2);
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg); padding: 5px 10px; max-width: 210px;
+  cursor: pointer;
+}
+.model-select:hover { background: var(--bg-soft); }
+.model-select:focus { outline: none; border-color: var(--ink-2); }
 .icon-btn {
   font: inherit; border: none; background: transparent; color: var(--muted);
   width: 34px; height: 34px; border-radius: var(--radius); cursor: pointer; font-size: 16px;
@@ -178,6 +205,32 @@ body {
 .step.error .ico { color: var(--err); }
 .step .result { color: var(--muted); }
 
+/* Agent activity (real stage of the loop, driven by server events) */
+.activity { border-top: 1px solid var(--line); padding: 12px 24px; max-height: 230px; overflow: auto; }
+.activity-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.activity-list { display: grid; gap: 2px; }
+.act { display: flex; gap: 8px; align-items: baseline; font-size: 13px; padding: 2px 0; }
+.act .ico { width: 15px; flex: none; color: var(--muted); font-size: 11px; }
+.act.running .ico { color: var(--ink); }
+.act.done .ico { color: var(--ok); }
+.act.error .ico { color: var(--err); }
+.act .note { color: var(--muted); overflow-wrap: anywhere; }
+.activity-summary { margin-top: 8px; font-size: 13px; color: var(--ink-2); white-space: pre-wrap; }
+.activity.completed { color: var(--muted); }
+.msg .bubble.streaming::after {
+  content: '▍'; color: var(--muted); animation: ncBlink 1s steps(2) infinite;
+}
+@keyframes ncBlink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .msg .bubble.streaming::after { animation: none; }
+}
+.files-card {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 12px; margin-top: 8px; font-size: 13px;
+}
+.files-card summary { cursor: pointer; color: var(--ink-2); font-weight: 600; }
+.files-list { margin: 6px 0 0; padding-left: 16px; color: var(--muted); font-family: var(--mono); font-size: 12px; }
+
 /* Composer */
 .composer { border-top: 1px solid var(--line); padding: 12px 24px 16px; }
 .attachments { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 8px; }
@@ -242,6 +295,53 @@ body {
   border: 1px solid var(--line); border-radius: var(--radius);
   padding: 8px 12px; font-size: 13px;
 }
+
+/* ------------------------------------------------------------ Connectors */
+#connectorsModal { width: min(760px, 94vw); }
+.conn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; margin-top: 12px; }
+.conn-card {
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  padding: 16px; display: flex; flex-direction: column; gap: 10px; background: var(--bg);
+  transition: border-color .15s ease;
+}
+.conn-card:hover { border-color: var(--ink-2); }
+.conn-head { display: flex; align-items: center; gap: 12px; }
+.conn-logo {
+  width: 38px; height: 38px; border-radius: 10px; flex: none;
+  background: var(--ink); color: var(--bg); display: grid; place-items: center;
+  font-size: 14px; font-weight: 700; letter-spacing: 0.02em;
+}
+.conn-name-wrap { min-width: 0; flex: 1; }
+.conn-name { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.conn-cat { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.conn-status {
+  font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; flex: none;
+}
+.conn-status-on { color: var(--ink); border-color: var(--ink); font-weight: 600; }
+.conn-desc { margin: 0; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+.conn-actions { display: flex; gap: 8px; align-items: center; }
+.conn-disconnect { color: var(--muted); }
+.conn-disconnect:hover { color: var(--ink); }
+.conn-pricing { margin: 0; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
+.conn-soon { font-size: 12px; color: var(--muted); }
+.conn-hint { padding: 6px 2px; }
+.conn-token-form, .conn-manage { padding: 4px 2px; }
+.conn-token-title { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+.conn-token-note { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
+.conn-group-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 14px 0 6px; }
+.conn-resource {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 6px; font-size: 13px;
+}
+.conn-resource-name { font-weight: 500; }
+.conn-resource-meta { color: var(--muted); font-size: 12px; }
+.conn-resource button { margin-left: auto; font-size: 12px; padding: 4px 10px; }
+/* Approval card (chat): agent waits for a consequential connector action */
+.approval-card .bubble { border-color: var(--ink); }
+.approval-title { font-weight: 600; }
+.approval-detail { font-size: 13px; color: var(--muted); margin: 4px 0 10px; }
+.approval-buttons { display: flex; gap: 8px; }
 
 /* Responsive */
 @media (max-width: 1060px) {
